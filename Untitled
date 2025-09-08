@@ -1,19 +1,7 @@
-import Link from 'next/link';
-
 export default function Home() {
   return (
     <div className="uppercase flex flex-col h-screen justify-center items-between *:w-full">
-      <header className="basis-1/5 text-center py-12">
-        <div>Round X</div>
-        <div className="mt-4 space-x-4">
-          <Link href="/battle" className="inline-block px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">
-            Vertical Battle Tracker
-          </Link>
-          <Link href="/mechanicus" className="inline-block px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors">
-            Horizontal Battle Tracker
-          </Link>
-        </div>
-      </header>
+      <header className="basis-1/5 text-center py-12">Round X</header>
       <div className="basis-3/5 flex flex-col justify-center">
         <div className="flex gap-42">
           <div className="flex-1 relative space-y-12">

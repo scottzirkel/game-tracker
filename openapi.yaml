@@ -1,0 +1,1043 @@
+openapi: 3.1.0
+info:
+  title: Warhammer 40K Battle Tracker API
+  description: Comprehensive API for managing Warhammer 40K battles, tournaments, and army lists with real-time tracking capabilities
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@warhammer-tracker.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.warhammer-tracker.com/v1
+    description: Production server
+  - url: https://staging-api.warhammer-tracker.com/v1
+    description: Staging server
+
+security:
+  - bearerAuth: []
+
+paths:
+  # Authentication Endpoints
+  /auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register a new user
+      operationId: registerUser
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Login user
+      operationId: loginUser
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh access token
+      operationId: refreshToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token:
+                  type: string
+              required:
+                - refresh_token
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+
+  # Battle Management
+  /battles:
+    get:
+      tags:
+        - Battles
+      summary: List battles
+      operationId: listBattles
+      parameters:
+        - name: player_id
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/BattleStatus'
+        - name: tournament_id
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: List of battles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Battle'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+    post:
+      tags:
+        - Battles
+      summary: Create a new battle
+      operationId: createBattle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBattleRequest'
+      responses:
+        '201':
+          description: Battle created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  battle:
+                    $ref: '#/components/schemas/Battle'
+
+  /battles/{battleId}:
+    get:
+      tags:
+        - Battles
+      summary: Get battle details
+      operationId: getBattle
+      parameters:
+        - $ref: '#/components/parameters/BattleId'
+      responses:
+        '200':
+          description: Battle details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  battle:
+                    $ref: '#/components/schemas/Battle'
+        '404':
+          description: Battle not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags:
+        - Battles
+      summary: Update battle state
+      operationId: updateBattle
+      parameters:
+        - $ref: '#/components/parameters/BattleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBattleRequest'
+      responses:
+        '200':
+          description: Battle updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  battle:
+                    $ref: '#/components/schemas/Battle'
+
+  /battles/{battleId}/advance-round:
+    post:
+      tags:
+        - Battles
+      summary: Advance to next battle round
+      operationId: advanceBattleRound
+      parameters:
+        - $ref: '#/components/parameters/BattleId'
+      responses:
+        '200':
+          description: Round advanced successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  battle:
+                    $ref: '#/components/schemas/Battle'
+
+  /battles/{battleId}/complete:
+    post:
+      tags:
+        - Battles
+      summary: Complete a battle
+      operationId: completeBattle
+      parameters:
+        - $ref: '#/components/parameters/BattleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteBattleRequest'
+      responses:
+        '200':
+          description: Battle completed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  battle:
+                    $ref: '#/components/schemas/Battle'
+
+  # Army Management
+  /armies:
+    get:
+      tags:
+        - Armies
+      summary: List armies
+      operationId: listArmies
+      parameters:
+        - name: owner_id
+          in: query
+          schema:
+            type: string
+        - name: faction_id
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: List of armies
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Army'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+    post:
+      tags:
+        - Armies
+      summary: Create a new army
+      operationId: createArmy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateArmyRequest'
+      responses:
+        '201':
+          description: Army created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  army:
+                    $ref: '#/components/schemas/Army'
+
+  /armies/{armyId}:
+    get:
+      tags:
+        - Armies
+      summary: Get army details
+      operationId: getArmy
+      parameters:
+        - $ref: '#/components/parameters/ArmyId'
+      responses:
+        '200':
+          description: Army details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  army:
+                    $ref: '#/components/schemas/Army'
+
+    put:
+      tags:
+        - Armies
+      summary: Update army
+      operationId: updateArmy
+      parameters:
+        - $ref: '#/components/parameters/ArmyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateArmyRequest'
+      responses:
+        '200':
+          description: Army updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  army:
+                    $ref: '#/components/schemas/Army'
+
+    delete:
+      tags:
+        - Armies
+      summary: Delete army
+      operationId: deleteArmy
+      parameters:
+        - $ref: '#/components/parameters/ArmyId'
+      responses:
+        '204':
+          description: Army deleted successfully
+
+  # Tournament Management
+  /tournaments:
+    get:
+      tags:
+        - Tournaments
+      summary: List tournaments
+      operationId: listTournaments
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/TournamentStatus'
+        - name: organizer_id
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: List of tournaments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Tournament'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+    post:
+      tags:
+        - Tournaments
+      summary: Create a new tournament
+      operationId: createTournament
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTournamentRequest'
+      responses:
+        '201':
+          description: Tournament created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tournament:
+                    $ref: '#/components/schemas/Tournament'
+
+  /tournaments/{tournamentId}:
+    get:
+      tags:
+        - Tournaments
+      summary: Get tournament details
+      operationId: getTournament
+      parameters:
+        - $ref: '#/components/parameters/TournamentId'
+      responses:
+        '200':
+          description: Tournament details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tournament:
+                    $ref: '#/components/schemas/Tournament'
+
+  /tournaments/{tournamentId}/register:
+    post:
+      tags:
+        - Tournaments
+      summary: Register for tournament
+      operationId: registerForTournament
+      parameters:
+        - $ref: '#/components/parameters/TournamentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                army_id:
+                  type: string
+                  description: ID of the army to register with
+              required:
+                - army_id
+      responses:
+        '200':
+          description: Successfully registered for tournament
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tournament:
+                    $ref: '#/components/schemas/Tournament'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    BattleId:
+      name: battleId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^btl_[a-zA-Z0-9]+$'
+      example: btl_def456
+
+    ArmyId:
+      name: armyId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^army_[a-zA-Z0-9]+$'
+      example: army_xyz789
+
+    TournamentId:
+      name: tournamentId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^trn_[a-zA-Z0-9]+$'
+      example: trn_ghi789
+
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      description: Number of items to return
+
+    Cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+      description: Cursor for pagination
+
+  schemas:
+    # Authentication Schemas
+    RegisterRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 30
+          pattern: '^[a-zA-Z0-9_]+$'
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        display_name:
+          type: string
+          maxLength: 50
+      required:
+        - username
+        - email
+        - password
+        - display_name
+
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required:
+        - username
+        - password
+
+    AuthResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in:
+          type: integer
+        user:
+          $ref: '#/components/schemas/User'
+
+    # Core Models
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: '^usr_[a-zA-Z0-9]+$'
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        role:
+          type: string
+          enum: [player, organizer, admin]
+        profile_image_url:
+          type: string
+          format: uri
+        tournament_wins:
+          type: integer
+          minimum: 0
+        total_battles:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Army:
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: '^army_[a-zA-Z0-9]+$'
+        name:
+          type: string
+        faction_id:
+          type: string
+        detachment:
+          type: string
+        owner_id:
+          type: string
+        points_value:
+          type: integer
+          minimum: 0
+        army_list:
+          $ref: '#/components/schemas/ArmyList'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ArmyList:
+      type: object
+      properties:
+        units:
+          type: array
+          items:
+            $ref: '#/components/schemas/Unit'
+
+    Unit:
+      type: object
+      properties:
+        name:
+          type: string
+        points:
+          type: integer
+          minimum: 0
+        keywords:
+          type: array
+          items:
+            type: string
+        abilities:
+          type: array
+          items:
+            type: string
+
+    Battle:
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: '^btl_[a-zA-Z0-9]+$'
+        tournament_id:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/BattleStatus'
+        battle_type:
+          $ref: '#/components/schemas/BattleType'
+        mission:
+          $ref: '#/components/schemas/Mission'
+        current_round:
+          type: integer
+          minimum: 1
+        max_rounds:
+          type: integer
+          minimum: 1
+        turn_time_limit:
+          type: integer
+          minimum: 0
+        current_turn:
+          $ref: '#/components/schemas/CurrentTurn'
+        players:
+          type: array
+          items:
+            $ref: '#/components/schemas/BattlePlayer'
+          minItems: 2
+          maxItems: 2
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    BattleStatus:
+      type: string
+      enum: [setup, in_progress, completed, cancelled]
+
+    BattleType:
+      type: string
+      enum: [matched_play, crusade, narrative]
+
+    Mission:
+      type: object
+      properties:
+        name:
+          type: string
+        primary_objectives:
+          type: array
+          items:
+            type: string
+        secondary_objectives:
+          type: array
+          items:
+            type: string
+        deployment:
+          type: string
+
+    CurrentTurn:
+      type: object
+      properties:
+        player_id:
+          type: string
+        phase:
+          type: string
+          enum: [command, movement, psychic, shooting, charge, fight, morale]
+        start_time:
+          type: string
+          format: date-time
+        time_remaining:
+          type: integer
+          minimum: 0
+
+    BattlePlayer:
+      type: object
+      properties:
+        user_id:
+          type: string
+        army_id:
+          type: string
+        position:
+          type: string
+          enum: [left, right]
+        scores:
+          $ref: '#/components/schemas/PlayerScores'
+        command_points:
+          type: integer
+          minimum: 0
+        stratagems_used:
+          type: array
+          items:
+            type: string
+
+    PlayerScores:
+      type: object
+      properties:
+        victory_points:
+          type: integer
+          minimum: 0
+        primary:
+          type: integer
+          minimum: 0
+        secondary:
+          type: integer
+          minimum: 0
+        linchpin:
+          type: integer
+          minimum: 0
+        challenge:
+          type: integer
+          minimum: 0
+
+    Tournament:
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: '^trn_[a-zA-Z0-9]+$'
+        name:
+          type: string
+        organizer_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/TournamentStatus'
+        format:
+          type: string
+          enum: [swiss, single_elimination, double_elimination]
+        max_participants:
+          type: integer
+          minimum: 1
+        current_participants:
+          type: integer
+          minimum: 0
+        entry_fee:
+          type: number
+          minimum: 0
+        prize_pool:
+          type: number
+          minimum: 0
+        start_date:
+          type: string
+          format: date-time
+        end_date:
+          type: string
+          format: date-time
+        rounds:
+          type: array
+          items:
+            $ref: '#/components/schemas/TournamentRound'
+        rules:
+          $ref: '#/components/schemas/TournamentRules'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    TournamentStatus:
+      type: string
+      enum: [draft, registration, active, completed, cancelled]
+
+    TournamentRound:
+      type: object
+      properties:
+        round_number:
+          type: integer
+          minimum: 1
+        pairings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Pairing'
+
+    Pairing:
+      type: object
+      properties:
+        battle_id:
+          type: string
+        player1_id:
+          type: string
+        player2_id:
+          type: string
+        table_number:
+          type: integer
+          minimum: 1
+
+    TournamentRules:
+      type: object
+      properties:
+        points_limit:
+          type: integer
+          minimum: 0
+        time_limit:
+          type: integer
+          minimum: 0
+        allowed_factions:
+          type: array
+          items:
+            type: string
+        special_rules:
+          type: array
+          items:
+            type: string
+
+    # Request Schemas
+    CreateBattleRequest:
+      type: object
+      properties:
+        tournament_id:
+          type: string
+          nullable: true
+        battle_type:
+          $ref: '#/components/schemas/BattleType'
+        mission:
+          $ref: '#/components/schemas/Mission'
+        players:
+          type: array
+          items:
+            type: object
+            properties:
+              user_id:
+                type: string
+              army_id:
+                type: string
+              position:
+                type: string
+                enum: [left, right]
+            required:
+              - user_id
+              - army_id
+              - position
+          minItems: 2
+          maxItems: 2
+        max_rounds:
+          type: integer
+          minimum: 1
+          default: 5
+        turn_time_limit:
+          type: integer
+          minimum: 0
+          default: 1800
+      required:
+        - battle_type
+        - mission
+        - players
+
+    UpdateBattleRequest:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [update_scores, advance_phase, use_stratagem]
+        player_id:
+          type: string
+        scores:
+          $ref: '#/components/schemas/PlayerScores'
+        phase:
+          type: string
+          enum: [command, movement, psychic, shooting, charge, fight, morale]
+        stratagem:
+          type: string
+      required:
+        - action
+        - player_id
+
+    CompleteBattleRequest:
+      type: object
+      properties:
+        winner_id:
+          type: string
+          nullable: true
+        final_scores:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/PlayerScores'
+
+    CreateArmyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        faction_id:
+          type: string
+        detachment:
+          type: string
+        points_value:
+          type: integer
+          minimum: 0
+        army_list:
+          $ref: '#/components/schemas/ArmyList'
+      required:
+        - name
+        - faction_id
+        - detachment
+        - points_value
+        - army_list
+
+    UpdateArmyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        detachment:
+          type: string
+        points_value:
+          type: integer
+          minimum: 0
+        army_list:
+          $ref: '#/components/schemas/ArmyList'
+
+    CreateTournamentRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        format:
+          type: string
+          enum: [swiss, single_elimination, double_elimination]
+        max_participants:
+          type: integer
+          minimum: 1
+        entry_fee:
+          type: number
+          minimum: 0
+        start_date:
+          type: string
+          format: date-time
+        end_date:
+          type: string
+          format: date-time
+        rules:
+          $ref: '#/components/schemas/TournamentRules'
+      required:
+        - name
+        - format
+        - max_participants
+        - start_date
+        - end_date
+
+    # Utility Schemas
+    Pagination:
+      type: object
+      properties:
+        limit:
+          type: integer
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string
+          nullable: true
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+        timestamp:
+          type: string
+          format: date-time
+        request_id:
+          type: string
+
+tags:
+  - name: Authentication
+    description: User authentication and authorization
+  - name: Battles
+    description: Battle management and tracking
+  - name: Armies
+    description: Army list management
+  - name: Tournaments
+    description: Tournament organization and management
