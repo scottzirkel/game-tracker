@@ -1,0 +1,9 @@
+{
+  "overrides": [
+    {
+      "name": "Allarus Custodians",
+      "costTiers": { "6": 320 }
+    }
+  ]
+}
+

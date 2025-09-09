@@ -12,6 +12,12 @@ export default function Home() {
           <Link href="/mechanicus" className="inline-block px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors">
             Horizontal Battle Tracker
           </Link>
+          <Link href="/scoreboard" className="inline-block px-6 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors">
+            Scoreboard
+          </Link>
+          <Link href="/overwatch" className="inline-block px-6 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 transition-colors">
+            Overwatch
+          </Link>
         </div>
       </header>
       <div className="basis-3/5 flex flex-col justify-center">
