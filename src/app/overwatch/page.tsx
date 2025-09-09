@@ -45,7 +45,13 @@ export default function OverwatchPage() {
   const [saving, setSaving] = useState(false);
   const [gameTimer, setGameTimer] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
-  const PHASES = ["Command", "Movement", "Shooting", "Charge", "Fight"] as const;
+  const PHASES = [
+    "Command",
+    "Movement",
+    "Shooting",
+    "Charge",
+    "Fight",
+  ] as const;
 
   useEffect(() => {
     fetch("/api/state")
@@ -221,7 +227,7 @@ export default function OverwatchPage() {
                       } as any);
                     }}
                   >
-                  <SelectTrigger className="bg-white/5 border-white/20 text-white">
+                    <SelectTrigger className="w-full bg-white/5 border-white/20 text-white">
                       <SelectValue placeholder="Select player…" />
                     </SelectTrigger>
                     <SelectContent>
@@ -248,9 +254,9 @@ export default function OverwatchPage() {
                         update({ [side]: { detachment: v } } as any)
                       }
                     >
-                    <SelectTrigger className="bg-white/5 border-white/20 text-white">
-                      <SelectValue placeholder="Select detachment…" />
-                    </SelectTrigger>
+                      <SelectTrigger className="w-full bg-white/5 border-white/20 text-white">
+                        <SelectValue placeholder="Select detachment…" />
+                      </SelectTrigger>
                       <SelectContent>
                         {detachmentList.map((opt) => (
                           <SelectItem key={opt.name} value={opt.name}>
@@ -280,7 +286,7 @@ export default function OverwatchPage() {
                       update({ [side]: { faction: v as Faction } } as any)
                     }
                   >
-                    <SelectTrigger className="bg-white/5 border-white/20 text-white">
+                    <SelectTrigger className="w-full bg-white/5 border-white/20 text-white">
                       <SelectValue placeholder="Select faction…" />
                     </SelectTrigger>
                     <SelectContent>
@@ -302,7 +308,7 @@ export default function OverwatchPage() {
                       update({ [side]: { currentSecondary: v } } as any)
                     }
                   >
-                    <SelectTrigger className="bg-white/5 border-white/20 text-white">
+                    <SelectTrigger className="w-full bg-white/5 border-white/20 text-white">
                       <SelectValue placeholder="Select secondary…" />
                     </SelectTrigger>
                     <SelectContent>
@@ -347,13 +353,13 @@ export default function OverwatchPage() {
                 Scoring
               </h3>
               <div className="text-2xl font-bold text-white">
+                <span className="text-sm text-gray-400 font-rajdhani tracking-[0.12em] uppercase mr-2">
+                  Victory Points
+                </span>
                 <span
-                  className={`font-orbitron font-black ${victory >= 30 ? "text-green-400" : victory >= 20 ? "text-yellow-400" : "text-white"}`}
+                  className={`inline-block min-w-8 text-right font-orbitron font-black ${victory >= 30 ? "text-green-400" : victory >= 20 ? "text-yellow-400" : "text-white"}`}
                 >
                   {victory}
-                </span>
-                <span className="text-sm text-gray-400 font-rajdhani tracking-[0.12em] uppercase ml-2">
-                  Victory Points
                 </span>
               </div>
             </div>
@@ -398,8 +404,8 @@ export default function OverwatchPage() {
     <div className="min-h-screen text-white bg-[#0b0d10]">
       <div className="max-w-7xl mx-auto p-4">
         <header className="mb-6">
-          <div className="flex items-start justify-between">
-            <div>
+          <div className="grid grid-cols-3 items-center">
+            <div className="justify-self-start">
               <h1 className="text-2xl font-black tracking-[0.25em] font-orbitron text-white">
                 OVERWATCH
               </h1>
@@ -411,7 +417,11 @@ export default function OverwatchPage() {
                   className="h-9 w-9 p-0"
                   title={timerRunning ? "Pause" : "Start"}
                 >
-                  {timerRunning ? <Pause className="h-4 w-4" /> : <PlayIcon className="h-4 w-4" />}
+                  {timerRunning ? (
+                    <Pause className="h-4 w-4" />
+                  ) : (
+                    <PlayIcon className="h-4 w-4" />
+                  )}
                 </Button>
                 <Button
                   variant={state?.gameActive ? "secondary" : "default"}
@@ -439,16 +449,30 @@ export default function OverwatchPage() {
                 </div>
               </div>
             </div>
-            <div className="flex items-end gap-4">
-              <ValueStepper
-                label="Round"
-                value={state?.battleRound ?? 1}
-                onDec={() => update({ battleRound: Math.max(1, (state?.battleRound ?? 1) - 1) })}
-                onInc={() => update({ battleRound: (state?.battleRound ?? 1) + 1 })}
-              />
-              <div className="text-gray-400 font-rajdhani tracking-[0.15em] uppercase ml-4">
-                Phase
+
+            {/* Center column: Round, centered */}
+            <div className="justify-self-center">
+              <div className="h-16 w-48 flex items-center justify-center">
+                <ValueStepper
+                  label="Round"
+                  value={state?.battleRound ?? 1}
+                  onDec={() =>
+                    update({
+                      battleRound: Math.max(1, (state?.battleRound ?? 1) - 1),
+                    })
+                  }
+                  onInc={() =>
+                    update({ battleRound: (state?.battleRound ?? 1) + 1 })
+                  }
+                />
               </div>
+            </div>
+
+            {/* Right column: Phase, right-aligned */}
+            <div className="justify-self-end flex flex-col items-end gap-2 text-right">
+              <Label className="text-sm font-bold tracking-[0.12em] text-gray-200 font-rajdhani uppercase">
+                Phase
+              </Label>
               <Select
                 value={(state?.phase as string) || undefined}
                 onValueChange={(v) => update({ phase: v } as any)}
@@ -474,8 +498,14 @@ export default function OverwatchPage() {
         </div>
 
         <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <RosterManager side="left" faction={(state?.left.faction as any) || undefined} />
-          <RosterManager side="right" faction={(state?.right.faction as any) || undefined} />
+          <RosterManager
+            side="left"
+            faction={(state?.left.faction as any) || undefined}
+          />
+          <RosterManager
+            side="right"
+            faction={(state?.right.faction as any) || undefined}
+          />
         </div>
       </div>
     </div>

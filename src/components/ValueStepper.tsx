@@ -39,7 +39,7 @@ export default function ValueStepper({
       >
         <Minus className="h-4 w-4" />
       </Button>
-      <div className="text-center flex-1">
+      <div className="text-center flex-1 flex flex-col items-center justify-center">
         <div className={valueClassName}>{value}</div>
         <div className={labelClassName}>{label}</div>
       </div>
