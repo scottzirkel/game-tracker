@@ -34,7 +34,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Plus, Minus, Skull, Heart, Shield, RotateCcw, Check, ChevronsUpDown } from "lucide-react";
 import ValueStepper from "@/components/ValueStepper";
-import * as allUnits from "@/lib/units";
+// Dynamic imports for better code splitting - units loaded per faction
 import { FACTIONS, type Faction, THEMES } from "@/lib/factions";
 
 type RosterManagerProps = {
@@ -84,6 +84,7 @@ export default function RosterManager({ side, faction }: RosterManagerProps) {
   const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState<string>("");
   const [unitComboboxOpen, setUnitComboboxOpen] = useState<boolean>(false);
+  const [mod, setMod] = useState<any>(null);
 
   // Generate storage key based on side and faction
   const storageKey = `warhammer-roster-${side}-${faction || 'default'}`;
@@ -115,24 +116,31 @@ export default function RosterManager({ side, faction }: RosterManagerProps) {
   const factionKey = (faction || FACTIONS[0]) as Faction;
   const theme = THEMES[factionKey];
 
-  const getUnitsModule = (f: Faction) => {
+  const getUnitsModule = async (f: Faction) => {
     switch (f) {
       case "Adeptus Custodes":
-        return allUnits.custodes;
+        return await import("@/lib/units/generated/custodes");
       case "Ultramarines":
-        return allUnits.ultramarines;
+        return await import("@/lib/units/generated/ultramarines");
       case "Chaos Marines":
-        return allUnits.chaosMarines;
+        return await import("@/lib/units/generated/chaosMarines");
       case "Necrons":
-        return allUnits.necrons;
+        return await import("@/lib/units/generated/necrons");
       case "Tyranids":
-        return allUnits.tyranids;
+        return await import("@/lib/units/generated/tyranids");
       default:
-        return allUnits.custodes;
+        return await import("@/lib/units/generated/custodes");
     }
   };
 
-  const mod = getUnitsModule(factionKey);
+  // Load faction units dynamically
+  useEffect(() => {
+    const loadFactionData = async () => {
+      const module = await getUnitsModule(factionKey);
+      setMod(module);
+    };
+    loadFactionData();
+  }, [factionKey]);
 
   const addUnit = () => {
     if (!selectedUnitId) return;
@@ -285,10 +293,25 @@ export default function RosterManager({ side, faction }: RosterManagerProps) {
     }, 0);
   };
 
-  const sortedUnits = [...(mod.UNITS as GenericUnit[])]
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const sortedUnits = mod ? [...(mod.UNITS as GenericUnit[])]
+    .sort((a, b) => a.name.localeCompare(b.name)) : [];
 
   const selectedUnit = sortedUnits.find(unit => unit.id === selectedUnitId);
+
+  // Show loading state if module not loaded yet
+  if (!mod) {
+    return (
+      <Card className={`w-full relative overflow-hidden ${theme.plateBorder}`}>
+        <CardHeader className="border-b border-white/15 px-4 pb-3">
+          <div className="flex items-center justify-center py-8">
+            <div className="text-white font-rajdhani tracking-wide">
+              Loading {factionKey} units...
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
+    );
+  }
 
   const getBgColor = () => {
     switch (factionKey) {
@@ -349,7 +372,7 @@ export default function RosterManager({ side, faction }: RosterManagerProps) {
       style={{ backgroundColor: getBgColor() }}
     >
       <CardHeader className="border-b border-white/15 px-4 pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-start justify-between">
           <div>
             <h2 className="text-xl font-black tracking-[0.15em] text-white font-orbitron uppercase">
               {factionKey}
@@ -359,22 +382,15 @@ export default function RosterManager({ side, faction }: RosterManagerProps) {
             </p>
           </div>
           <div className="text-right">
-            <div className="text-lg font-orbitron font-bold text-white">
-              {getTotalPoints()} Points
+            <div className="text-lg font-orbitron font-bold text-white mb-1">
+              {getTotalPoints()}
+              <span className="text-xs text-gray-400 font-rajdhani uppercase tracking-wide ml-2">
+                Points
+              </span>
             </div>
-            <div className="text-xs font-rajdhani tracking-[0.12em] uppercase text-gray-400 mt-1">
+            <div className="text-xs font-rajdhani tracking-[0.12em] uppercase text-gray-400">
               {units.length} Units
             </div>
-            {units.length > 0 && (
-              <Button
-                onClick={clearRoster}
-                size="sm"
-                variant="outline"
-                className="text-red-400 border-red-400 hover:bg-red-400/10 mt-2 text-xs h-6"
-              >
-                Clear Roster
-              </Button>
-            )}
           </div>
         </div>
       </CardHeader>
@@ -510,7 +526,9 @@ export default function RosterManager({ side, faction }: RosterManagerProps) {
 
         </div>
 
-        <Separator className="mb-6 opacity-40" />
+        <div className="-mx-4 mb-6">
+          <Separator className="opacity-40" />
+        </div>
 
         {/* Units List */}
         <div className="space-y-4">
