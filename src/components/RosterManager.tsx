@@ -1,10 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardFooter,
+} from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -12,9 +17,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Minus, Skull, Heart, Shield, RotateCcw } from "lucide-react";
+import { Plus, Minus, Skull, Heart, Shield, RotateCcw, Check, ChevronsUpDown } from "lucide-react";
+import ValueStepper from "@/components/ValueStepper";
 import * as allUnits from "@/lib/units";
 import { FACTIONS, type Faction, THEMES } from "@/lib/factions";
 
@@ -24,15 +43,24 @@ type RosterManagerProps = {
 };
 
 // Minimal unit shape used by the UI (structural typing)
+type StatProfile = {
+  name: string;
+  movement?: number;
+  wounds: number;
+  toughness: number;
+  save: number;
+  invulnSave?: number;
+  leadership?: number;
+  objectiveControl?: number;
+};
+
 type GenericUnit = {
   id: string;
   name: string;
   baseCost: number;
   modelsPerUnit: { min: number; max: number };
-  wounds: number;
-  toughness: number;
-  save: number;
-  invulnSave?: number;
+  statProfiles: StatProfile[];
+  keywords?: string[];
   abilities?: string[];
 };
 
@@ -42,8 +70,9 @@ type UnitInstance = {
   name: string;
   currentModels: number;
   totalModels: number;
-  wounds: number;
-  maxWounds: number;
+  wounds: number; // For single profile units (legacy support)
+  maxWounds: number; // For single profile units (legacy support)
+  profileWounds?: Record<string, number>; // wounds per profile name
   isDead: boolean;
 };
 
@@ -52,6 +81,36 @@ export default function RosterManager({ side, faction }: RosterManagerProps) {
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
   const [newUnitName, setNewUnitName] = useState<string>("");
   const [selectedModelCount, setSelectedModelCount] = useState<number>(1);
+  const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState<string>("");
+  const [unitComboboxOpen, setUnitComboboxOpen] = useState<boolean>(false);
+
+  // Generate storage key based on side and faction
+  const storageKey = `warhammer-roster-${side}-${faction || 'default'}`;
+
+  // Load roster from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedRoster = localStorage.getItem(storageKey);
+      if (savedRoster) {
+        const parsedRoster = JSON.parse(savedRoster);
+        if (Array.isArray(parsedRoster)) {
+          setUnits(parsedRoster);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load roster from localStorage:', error);
+    }
+  }, [storageKey]);
+
+  // Save roster to localStorage whenever units change
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(units));
+    } catch (error) {
+      console.warn('Failed to save roster to localStorage:', error);
+    }
+  }, [units, storageKey]);
 
   const factionKey = (faction || FACTIONS[0]) as Faction;
   const theme = THEMES[factionKey];
@@ -81,14 +140,24 @@ export default function RosterManager({ side, faction }: RosterManagerProps) {
     const unit = mod.getUnitById(selectedUnitId) as GenericUnit | undefined;
     if (!unit) return;
 
+    // Initialize wounds for each profile
+    const profileWounds: Record<string, number> = {};
+    unit.statProfiles.forEach(profile => {
+      profileWounds[profile.name] = profile.wounds;
+    });
+
+    // For backward compatibility, use first profile for legacy wounds
+    const firstProfile = unit.statProfiles[0];
+    
     const newUnit: UnitInstance = {
       id: `${selectedUnitId}-${Date.now()}`,
       unitId: selectedUnitId,
       name: newUnitName || unit.name,
       currentModels: selectedModelCount,
       totalModels: selectedModelCount,
-      wounds: unit.wounds,
-      maxWounds: unit.wounds,
+      wounds: firstProfile.wounds,
+      maxWounds: firstProfile.wounds,
+      profileWounds: profileWounds,
       isDead: false,
     };
 
@@ -186,6 +255,28 @@ export default function RosterManager({ side, faction }: RosterManagerProps) {
     });
   };
 
+  const startEditingName = (unitInstance: UnitInstance) => {
+    setEditingUnitId(unitInstance.id);
+    setEditingName(unitInstance.name);
+  };
+
+  const saveEditedName = (unitId: string) => {
+    if (editingName.trim()) {
+      updateUnit(unitId, { name: editingName.trim() });
+    }
+    setEditingUnitId(null);
+    setEditingName("");
+  };
+
+  const cancelEditingName = () => {
+    setEditingUnitId(null);
+    setEditingName("");
+  };
+
+  const clearRoster = () => {
+    setUnits([]);
+  };
+
   const getTotalPoints = () => {
     return units.reduce((total, unitInstance) => {
       const unit = mod.getUnitById(unitInstance.unitId) as any;
@@ -194,9 +285,10 @@ export default function RosterManager({ side, faction }: RosterManagerProps) {
     }, 0);
   };
 
-  const sortedUnits = [...(mod.UNITS as GenericUnit[])].sort((a, b) =>
-    a.name.localeCompare(b.name),
-  );
+  const sortedUnits = [...(mod.UNITS as GenericUnit[])]
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const selectedUnit = sortedUnits.find(unit => unit.id === selectedUnitId);
 
   const getBgColor = () => {
     switch (factionKey) {
@@ -214,6 +306,40 @@ export default function RosterManager({ side, faction }: RosterManagerProps) {
         return "rgba(23, 23, 23, 0.5)";
     }
   };
+  
+  const getInputPlaceholderColor = () => {
+    switch (factionKey) {
+      case "Ultramarines":
+        return "placeholder:text-blue-300/60";
+      case "Adeptus Custodes":
+        return "placeholder:text-amber-300/60";
+      case "Chaos Marines":
+        return "placeholder:text-red-300/60";
+      case "Necrons":
+        return "placeholder:text-emerald-300/60";
+      case "Tyranids":
+        return "placeholder:text-purple-300/60";
+      default:
+        return "placeholder:text-gray-400";
+    }
+  };
+  
+  const getSelectPlaceholderClass = () => {
+    switch (factionKey) {
+      case "Ultramarines":
+        return "data-[placeholder]:text-blue-300/60";
+      case "Adeptus Custodes":
+        return "data-[placeholder]:text-amber-300/60";
+      case "Chaos Marines":
+        return "data-[placeholder]:text-red-300/60";
+      case "Necrons":
+        return "data-[placeholder]:text-emerald-300/60";
+      case "Tyranids":
+        return "data-[placeholder]:text-purple-300/60";
+      default:
+        return "data-[placeholder]:text-gray-400";
+    }
+  };
   const primaryGradientDir =
     side === "right" ? "bg-gradient-to-l" : "bg-gradient-to-r";
 
@@ -222,43 +348,106 @@ export default function RosterManager({ side, faction }: RosterManagerProps) {
       className={`w-full relative overflow-hidden ${theme.plateBorder}`}
       style={{ backgroundColor: getBgColor() }}
     >
-      <CardContent className="p-4 relative pb-6">
+      <CardHeader className="border-b border-white/15 px-4 pb-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-black tracking-[0.15em] text-white font-orbitron uppercase">
+              {factionKey}
+            </h2>
+            <p className="text-sm font-bold tracking-[0.20em] text-gray-400 font-rajdhani uppercase mt-1">
+              Roster
+            </p>
+          </div>
+          <div className="text-right">
+            <div className="text-lg font-orbitron font-bold text-white">
+              {getTotalPoints()} Points
+            </div>
+            <div className="text-xs font-rajdhani tracking-[0.12em] uppercase text-gray-400 mt-1">
+              {units.length} Units
+            </div>
+            {units.length > 0 && (
+              <Button
+                onClick={clearRoster}
+                size="sm"
+                variant="outline"
+                className="text-red-400 border-red-400 hover:bg-red-400/10 mt-2 text-xs h-6"
+              >
+                Clear Roster
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="px-4 relative">
         <div className="mb-6">
           {/* Add Unit Section */}
-          {/* Row 1: Unit + Add button */}
+          {/* Row 1: Unit Combobox + Add button */}
           <div className="flex items-end justify-between mb-6 gap-6">
-            <div className="flex-1 min-w-0">
+            <div className="w-3/4 min-w-0">
               <Label className="text-sm font-bold tracking-[0.12em] text-gray-200 font-rajdhani uppercase">
                 Unit
               </Label>
-              <Select
-                value={selectedUnitId}
-                onValueChange={(unitId) => {
-                  setSelectedUnitId(unitId);
-                  const unit = mod.getUnitById(unitId) as
-                    | GenericUnit
-                    | undefined;
-                  if (unit) setSelectedModelCount(unit.modelsPerUnit.min);
-                }}
-              >
-                <SelectTrigger className="w-full h-9 bg-white/5 border-white/20 text-white">
-                  <SelectValue placeholder="Select unit…" />
-                </SelectTrigger>
-                <SelectContent className="max-h-60">
-                  {sortedUnits.map((unit) => (
-                    <SelectItem key={unit.id} value={unit.id}>
-                      {unit.name} ({unit.baseCost}pts)
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover open={unitComboboxOpen} onOpenChange={setUnitComboboxOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={unitComboboxOpen}
+                    className="w-full h-9 justify-between bg-white/5 border-white/20 text-white hover:bg-white/10"
+                  >
+                    {selectedUnit ? (
+                      <span className="truncate">
+                        {selectedUnit.name} ({selectedUnit.baseCost}pts)
+                      </span>
+                    ) : (
+                      <span className={getInputPlaceholderColor().replace('placeholder:', 'text-')}>
+                        Select unit…
+                      </span>
+                    )}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-full p-0" align="start">
+                  <Command>
+                    <CommandInput 
+                      placeholder="Search units..."
+                      className="h-9"
+                    />
+                    <CommandList>
+                      <CommandEmpty>No units found.</CommandEmpty>
+                      <CommandGroup>
+                        {sortedUnits.map((unit) => (
+                          <CommandItem
+                            key={unit.id}
+                            value={unit.name}
+                            onSelect={() => {
+                              setSelectedUnitId(unit.id);
+                              setUnitComboboxOpen(false);
+                              
+                              const selectedUnit = mod.getUnitById(unit.id) as GenericUnit | undefined;
+                              if (selectedUnit) setSelectedModelCount(selectedUnit.modelsPerUnit.min);
+                            }}
+                          >
+                            <Check
+                              className={`mr-2 h-4 w-4 ${
+                                selectedUnitId === unit.id ? "opacity-100" : "opacity-0"
+                              }`}
+                            />
+                            {unit.name} ({unit.baseCost}pts)
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
-            <div className="flex-shrink-0">
+            <div className="w-1/4 flex-shrink-0 text-right">
               <Button
                 onClick={addUnit}
                 disabled={!selectedUnitId}
                 variant="outline"
-                className={`h-9 px-4 bg-transparent text-white border ${theme.primaryBorder} hover:border-opacity-80 hover:bg-white/10`}
+                className={`h-9 px-4 ml-auto bg-transparent text-white border ${theme.primaryBorder} hover:border-opacity-80 hover:bg-white/10`}
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Add Unit
@@ -268,7 +457,7 @@ export default function RosterManager({ side, faction }: RosterManagerProps) {
 
           {/* Row 2: Custom Name + Model Count */}
           <div className="flex items-end justify-between gap-6 mb-4">
-            <div className="flex-1 min-w-0">
+            <div className="width-3/4 min-w-0">
               <Label className="text-sm font-bold tracking-[0.12em] text-gray-200 font-rajdhani uppercase">
                 Custom Name
               </Label>
@@ -276,66 +465,49 @@ export default function RosterManager({ side, faction }: RosterManagerProps) {
                 value={newUnitName}
                 onChange={(e) => setNewUnitName(e.target.value)}
                 placeholder="Optional custom name"
-                className="h-9 bg-white/5 border-white/20 text-white"
+                className={`h-9 w-full bg-white/5 border-white/20 text-white ${getInputPlaceholderColor()}`}
               />
             </div>
-            <div className="text-right">
+            <div className="w-1/4 text-right">
               <label className="text-sm font-bold tracking-[0.12em] text-gray-200 font-rajdhani uppercase text-right">
                 Model Count
               </label>
-              <div className="mt-2">
-                <Select
-                  value={selectedModelCount.toString()}
-                  onValueChange={(count) =>
-                    setSelectedModelCount(parseInt(count))
-                  }
-                  disabled={!selectedUnitId}
-                >
-                  <SelectTrigger className="w-32 h-9 bg-white/5 border-white/20 text-white">
-                    <SelectValue placeholder="Count" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {selectedUnitId &&
-                      (() => {
-                        const unit = mod.getUnitById(selectedUnitId) as
-                          | GenericUnit
-                          | undefined;
-                        if (!unit) return null;
-                        const options = [];
-                        for (
-                          let i = unit.modelsPerUnit.min;
-                          i <= unit.modelsPerUnit.max;
-                          i++
-                        ) {
-                          options.push(
-                            <SelectItem key={i} value={i.toString()}>
-                              {i} model{i > 1 ? "s" : ""}
-                            </SelectItem>,
-                          );
-                        }
-                        return options;
-                      })()}
-                  </SelectContent>
-                </Select>
-              </div>
+              <Select
+                value={selectedModelCount.toString()}
+                onValueChange={(count) =>
+                  setSelectedModelCount(parseInt(count))
+                }
+                disabled={!selectedUnitId}
+              >
+                <SelectTrigger className={`ml-auto w-32 h-9 bg-white/5 border-white/20 text-white ${getSelectPlaceholderClass()}`}>
+                  <SelectValue placeholder="Count" />
+                </SelectTrigger>
+                <SelectContent>
+                  {selectedUnitId &&
+                    (() => {
+                      const unit = mod.getUnitById(selectedUnitId) as
+                        | GenericUnit
+                        | undefined;
+                      if (!unit) return null;
+                      const options = [];
+                      for (
+                        let i = unit.modelsPerUnit.min;
+                        i <= unit.modelsPerUnit.max;
+                        i++
+                      ) {
+                        options.push(
+                          <SelectItem key={i} value={i.toString()}>
+                            {i} model{i > 1 ? "s" : ""}
+                          </SelectItem>,
+                        );
+                      }
+                      return options;
+                    })()}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
-          {/* Mini Summary */}
-          <div
-            className={`flex items-center justify-between mt-4 mb-4 p-3 ${primaryGradientDir} ${theme.primaryFrom} ${theme.primaryTo} border ${theme.primaryBorder} rounded`}
-          >
-            <div
-              className={`text-sm font-rajdhani tracking-[0.12em] uppercase ${theme.primaryMutedText}`}
-            >
-              Total Units: {units.length}
-            </div>
-            <div
-              className={`text-lg font-orbitron font-bold ${theme.primaryText}`}
-            >
-              {getTotalPoints()} Points
-            </div>
-          </div>
         </div>
 
         <Separator className="mb-6 opacity-40" />
@@ -362,85 +534,153 @@ export default function RosterManager({ side, faction }: RosterManagerProps) {
               return (
                 <Card
                   key={unitInstance.id}
-                  className={`border transition-all duration-200 ${
+                  className={`border transition-all duration-200 relative overflow-hidden ${
                     unitInstance.isDead
                       ? "border-red-500/50 bg-red-900/20"
-                      : `${theme.primaryBorder} ${primaryGradientDir} ${theme.primaryFrom} ${theme.primaryTo}`
+                      : `${theme.plateBorder} bg-transparent`
                   }`}
                 >
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <h4
-                          className={`font-bold font-rajdhani tracking-wide ${theme.primaryText}`}
-                        >
-                          {unitInstance.name}
-                        </h4>
-                        {/* Classification removed */}
-                        {unitInstance.isDead && (
-                          <Badge variant="destructive" className="text-xs">
-                            <Skull className="w-3 h-3 mr-1" />
-                            DESTROYED
-                          </Badge>
+                  {/* Skull watermark for destroyed units */}
+                  {unitInstance.isDead && (
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden">
+                      <Skull className="h-[80%] w-auto text-red-500/15" />
+                    </div>
+                  )}
+                  <CardHeader className="border-b border-white/15 px-4 pb-3">
+                    <div className="flex items-start justify-between gap-4 mb-3">
+                      <div className="flex-1 min-w-0">
+                        {editingUnitId === unitInstance.id ? (
+                          <Input
+                            value={editingName}
+                            onChange={(e) => setEditingName(e.target.value)}
+                            onBlur={() => saveEditedName(unitInstance.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                saveEditedName(unitInstance.id);
+                              } else if (e.key === 'Escape') {
+                                cancelEditingName();
+                              }
+                            }}
+                            className="text-lg font-bold font-rajdhani tracking-wide bg-white/10 border-white/30 text-white h-7 px-2"
+                            autoFocus
+                          />
+                        ) : (
+                          <h4
+                            className="text-lg font-bold font-rajdhani tracking-wide text-white truncate cursor-pointer hover:text-gray-300 transition-colors"
+                            title={`${unitInstance.name} (click to edit)`}
+                            onClick={() => startEditingName(unitInstance)}
+                          >
+                            {unitInstance.name}
+                          </h4>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`text-sm font-orbitron font-bold ${theme.primaryText}`}
-                        >
-                          {points}pts
-                        </span>
-                        {unitInstance.isDead && (
-                          <Button
-                            onClick={() => reviveUnit(unitInstance)}
-                            size="sm"
-                            variant="outline"
-                            className="text-green-400 border-green-400 hover:bg-green-400/10"
-                          >
-                            <RotateCcw className="w-3 h-3 mr-1" />
-                            Revive
-                          </Button>
-                        )}
-                        <Button
-                          onClick={() => removeUnit(unitInstance.id)}
-                          size="sm"
-                          variant="destructive"
-                        >
-                          Remove
-                        </Button>
+                      {/* Points in right corner */}
+                      <div className="flex-shrink-0">
+                        <div className="text-xl font-bold font-orbitron text-amber-200">
+                          {points} pts
+                        </div>
                       </div>
                     </div>
+                    
+                    {/* 40K Datasheet Style Stat Line - moved under name */}
+                    <div className="space-y-3">
+                      {unit.statProfiles.map((profile, profileIndex) => (
+                        <div key={profileIndex} className="">
+                          <div className="flex items-center gap-2 mb-1">
+                            {/* Movement */}
+                            {profile.movement && (
+                              <div className="flex flex-col items-center bg-white/10 text-white px-3 py-2 rounded min-w-[40px] border border-white/20">
+                                <div className="text-[10px] font-bold uppercase leading-none mb-1">M</div>
+                                <div className="text-sm font-bold leading-none">{profile.movement}"</div>
+                              </div>
+                            )}
+                            
+                            {/* Toughness */}
+                            <div className="flex flex-col items-center bg-white/10 text-white px-3 py-2 rounded min-w-[40px] border border-white/20">
+                              <div className="text-[10px] font-bold uppercase leading-none mb-1">T</div>
+                              <div className="text-sm font-bold leading-none">{profile.toughness}</div>
+                            </div>
+                            
+                            {/* Save */}
+                            <div className="flex flex-col items-center bg-white/10 text-white px-3 py-2 rounded min-w-[40px] border border-white/20">
+                              <div className="text-[10px] font-bold uppercase leading-none mb-1">SV</div>
+                              <div className="text-sm font-bold leading-none">
+                                {profile.save}+
+                              </div>
+                            </div>
+                            
+                            {/* Invulnerable Save */}
+                            {profile.invulnSave && (
+                              <div className="flex flex-col items-center bg-white/10 text-white px-3 py-2 rounded min-w-[40px] border border-white/20">
+                                <div className="text-[10px] font-bold leading-none flex items-center justify-center mb-1">
+                                  <Shield className="w-3 h-3" />
+                                </div>
+                                <div className="text-sm font-bold leading-none">
+                                  {profile.invulnSave}++
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Wounds */}
+                            <div className="flex flex-col items-center bg-white/10 text-white px-3 py-2 rounded min-w-[40px] border border-white/20">
+                              <div className="text-[10px] font-bold uppercase leading-none mb-1">W</div>
+                              <div className="text-sm font-bold leading-none">{profile.wounds}</div>
+                            </div>
+                            
+                            {/* Leadership */}
+                            {profile.leadership && (
+                              <div className="flex flex-col items-center bg-white/10 text-white px-3 py-2 rounded min-w-[40px] border border-white/20">
+                                <div className="text-[10px] font-bold uppercase leading-none mb-1">LD</div>
+                                <div className="text-sm font-bold leading-none">{profile.leadership}+</div>
+                              </div>
+                            )}
+                            
+                            {/* Objective Control */}
+                            {profile.objectiveControl !== undefined && (
+                              <div className="flex flex-col items-center bg-white/10 text-white px-3 py-2 rounded min-w-[40px] border border-white/20">
+                                <div className="text-[10px] font-bold uppercase leading-none mb-1">OC</div>
+                                <div className="text-sm font-bold leading-none">{profile.objectiveControl}</div>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Model Name under the stat blocks */}
+                          <div className="text-xs font-bold text-gray-300 uppercase tracking-wide text-center">
+                            {profile.name}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardHeader>
 
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-3">
+                  <CardContent className="px-4 py-3">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-1">
                       {/* Active Models */}
-                      <div>
-                        <Label className="text-xs text-gray-400 font-rajdhani uppercase">
-                          Active
-                        </Label>
-                        <div className="flex items-center gap-2 mt-1">
+                      <div className="flex justify-center">
+                        <div className="flex items-center gap-2">
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => killModel(unitInstance)}
-                            disabled={unitInstance.currentModels === 0}
-                            className="size-8 p-0"
+                            disabled={unitInstance.isDead || unitInstance.currentModels === 0}
+                            className={`size-8 p-0 bg-transparent dark:bg-transparent text-white hover:bg-white/10 border ${theme.primaryBorder}`}
                           >
                             <Minus className="w-3 h-3" />
                           </Button>
-                          <span
-                            className={`font-orbitron font-bold min-w-[30px] text-center ${theme.primaryText}`}
-                          >
-                            {unitInstance.currentModels}
-                          </span>
+                          <div className="text-center flex-1 flex flex-col items-center justify-center">
+                            <div className={`text-2xl font-bold font-orbitron ${theme.primaryText}`}>
+                              {unitInstance.currentModels}
+                            </div>
+                            <div className="text-xs text-gray-400 font-rajdhani tracking-[0.12em] uppercase">
+                              Active
+                            </div>
+                          </div>
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => addModel(unitInstance)}
-                            disabled={
-                              unitInstance.currentModels >=
-                              unitInstance.totalModels
-                            }
-                            className="size-8 p-0"
+                            disabled={unitInstance.isDead || unitInstance.currentModels >= unitInstance.totalModels}
+                            className={`size-8 p-0 bg-transparent dark:bg-transparent text-white hover:bg-white/10 border ${theme.primaryBorder}`}
                           >
                             <Plus className="w-3 h-3" />
                           </Button>
@@ -448,105 +688,133 @@ export default function RosterManager({ side, faction }: RosterManagerProps) {
                       </div>
 
                       {/* Total Models */}
-                      <div>
-                        <Label className="text-xs font-rajdhani uppercase text-amber-300">
-                          Total
-                        </Label>
-                        <div className="flex items-center gap-2 mt-1">
+                      <div className="flex justify-center">
+                        <div className="flex items-center gap-2">
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => changeTotalModels(unitInstance, -1)}
-                            disabled={
-                              unitInstance.totalModels <= unit.modelsPerUnit.min
-                            }
-                            className="size-8 p-0 text-amber-300 border-amber-400/50"
+                            disabled={unitInstance.isDead || unitInstance.totalModels <= unit.modelsPerUnit.min}
+                            className={`size-8 p-0 bg-transparent dark:bg-transparent text-white hover:bg-white/10 border ${theme.primaryBorder}`}
                           >
                             <Minus className="w-3 h-3" />
                           </Button>
-                          <span className="font-orbitron font-bold min-w-[30px] text-center text-amber-300">
-                            {unitInstance.totalModels}
-                          </span>
+                          <div className="text-center flex-1 flex flex-col items-center justify-center">
+                            <div className={`text-2xl font-bold font-orbitron ${theme.primaryText}`}>
+                              {unitInstance.totalModels}
+                            </div>
+                            <div className="text-xs text-gray-400 font-rajdhani tracking-[0.12em] uppercase">
+                              Total
+                            </div>
+                          </div>
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => changeTotalModels(unitInstance, +1)}
-                            disabled={
-                              unitInstance.totalModels >= unit.modelsPerUnit.max
-                            }
-                            className="size-8 p-0 text-amber-300 border-amber-400/50"
+                            disabled={unitInstance.isDead || unitInstance.totalModels >= unit.modelsPerUnit.max}
+                            className={`size-8 p-0 bg-transparent dark:bg-transparent text-white hover:bg-white/10 border ${theme.primaryBorder}`}
                           >
                             <Plus className="w-3 h-3" />
                           </Button>
                         </div>
                       </div>
 
-                      {/* Wounds */}
-                      <div>
-                        <Label className="text-xs text-gray-400 font-rajdhani uppercase">
-                          Wounds
-                        </Label>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => damageModel(unitInstance, 1)}
-                            disabled={unitInstance.isDead}
-                            className="size-8 p-0"
-                          >
-                            <Minus className="w-3 h-3" />
-                          </Button>
-                          <span
-                            className={`font-orbitron font-bold min-w-[40px] text-center ${
-                              isWounded ? "text-red-400" : theme.primaryText
-                            }`}
-                          >
-                            {unitInstance.wounds}/{unitInstance.maxWounds}
-                          </span>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => healModel(unitInstance)}
-                            disabled={unitInstance.isDead || !isWounded}
-                            className="size-8 p-0"
-                          >
-                            <Heart className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Save */}
-                      <div>
-                        <Label className="text-xs text-gray-400 font-rajdhani uppercase">
-                          Save
-                        </Label>
-                        <div className="flex items-center gap-1 mt-1">
-                          <Shield className="w-4 h-4 text-blue-400" />
-                          <span
-                            className={`font-orbitron text-sm ${theme.primaryText}`}
-                          >
-                            {unit.save}+
-                          </span>
-                          {unit.invulnSave && (
-                            <span className="font-orbitron text-sm text-yellow-400">
-                              ({unit.invulnSave}++)
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Toughness */}
-                      <div>
-                        <Label className="text-xs text-gray-400 font-rajdhani uppercase">
-                          Toughness
-                        </Label>
-                        <div
-                          className={`font-orbitron text-sm mt-1 ${theme.primaryText}`}
-                        >
-                          T{unit.toughness}
-                        </div>
+                      {/* Wounds - Multiple profiles or single profile */}
+                      <div className="flex justify-center">
+                        {unit.statProfiles.length > 1 ? (
+                          // Multi-profile wound tracking
+                          <div className="flex flex-col items-center gap-2">
+                            {unit.statProfiles.map((profile, profileIndex) => {
+                              const profileWounds = unitInstance.profileWounds?.[profile.name] || profile.wounds;
+                              const isProfileWounded = profileWounds < profile.wounds;
+                              
+                              return (
+                                <div key={profileIndex} className="flex items-center gap-1">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      if (unitInstance.profileWounds) {
+                                        const newWounds = Math.max(0, profileWounds - 1);
+                                        updateUnit(unitInstance.id, {
+                                          profileWounds: {
+                                            ...unitInstance.profileWounds,
+                                            [profile.name]: newWounds
+                                          }
+                                        });
+                                      }
+                                    }}
+                                    disabled={unitInstance.isDead}
+                                    className="size-6 p-0 bg-transparent dark:bg-transparent text-white hover:bg-white/10 border border-white/30"
+                                  >
+                                    <Minus className="w-2 h-2" />
+                                  </Button>
+                                  <div className="text-center flex flex-col items-center justify-center min-w-[60px]">
+                                    <div className={`text-lg font-bold font-orbitron ${isProfileWounded ? "text-red-400" : theme.primaryText}`}>
+                                      {profileWounds}
+                                    </div>
+                                    <div className="text-[10px] text-gray-400 font-rajdhani tracking-wide uppercase truncate max-w-[60px]" title={profile.name}>
+                                      {profile.name.split(' ')[0]}
+                                    </div>
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      if (unitInstance.profileWounds) {
+                                        updateUnit(unitInstance.id, {
+                                          profileWounds: {
+                                            ...unitInstance.profileWounds,
+                                            [profile.name]: profile.wounds
+                                          }
+                                        });
+                                      }
+                                    }}
+                                    disabled={unitInstance.isDead || !isProfileWounded}
+                                    className="size-6 p-0 bg-transparent dark:bg-transparent text-white hover:bg-white/10 border border-white/30"
+                                  >
+                                    <Heart className="w-2 h-2" />
+                                  </Button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          // Single profile wound tracking (existing)
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => damageModel(unitInstance, 1)}
+                              disabled={unitInstance.isDead}
+                              className={`size-8 p-0 bg-transparent dark:bg-transparent text-white hover:bg-white/10 border ${theme.primaryBorder}`}
+                            >
+                              <Minus className="w-3 h-3" />
+                            </Button>
+                            <div className="text-center flex-1 flex flex-col items-center justify-center">
+                              <div
+                                className={`text-2xl font-bold font-orbitron ${isWounded ? "text-red-400" : theme.primaryText}`}
+                              >
+                                {unitInstance.wounds}
+                              </div>
+                              <div className="text-xs text-gray-400 font-rajdhani tracking-[0.12em] uppercase">
+                                Wounds
+                              </div>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => healModel(unitInstance)}
+                              disabled={unitInstance.isDead || !isWounded}
+                              className={`size-8 p-0 bg-transparent dark:bg-transparent text-white hover:bg-white/10 border ${theme.primaryBorder}`}
+                            >
+                              <Heart className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </div>
+
 
                     {/* Abilities */}
                     {unit.abilities && unit.abilities.length > 0 && (
@@ -568,6 +836,43 @@ export default function RosterManager({ side, faction }: RosterManagerProps) {
                       </div>
                     )}
                   </CardContent>
+
+                  <CardFooter className="justify-between items-center border-t border-white/15 px-4 py-3">
+                    {/* Keywords on the left */}
+                    <div className="flex-1 min-w-0 mr-4">
+                      {unit.keywords && unit.keywords.length > 0 && (
+                        <div className="text-xs text-gray-400 uppercase tracking-wide">
+                          <span className="font-bold">Keywords:</span>{' '}
+                          <span>{unit.keywords.join(', ')}</span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Buttons on the right - always reserve space for revive button */}
+                    <div className="flex gap-2 flex-shrink-0 min-w-[140px] justify-end">
+                      {unitInstance.isDead ? (
+                        <Button
+                          onClick={() => reviveUnit(unitInstance)}
+                          size="sm"
+                          variant="outline"
+                          className="text-green-400 border-green-400 hover:bg-green-400/10"
+                        >
+                          <RotateCcw className="w-3 h-3 mr-1" />
+                          Revive
+                        </Button>
+                      ) : (
+                        <div className="w-[68px]"></div>
+                      )}
+                      <Button
+                        onClick={() => removeUnit(unitInstance.id)}
+                        size="sm"
+                        variant="outline"
+                        className="text-red-400 border-red-400 hover:bg-red-400/10"
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  </CardFooter>
                 </Card>
               );
             })

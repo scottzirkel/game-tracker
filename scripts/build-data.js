@@ -49,6 +49,24 @@ function parseSave(s) {
   return m ? parseInt(m[1], 10) : undefined;
 }
 
+function parseMovement(s) {
+  if (!s) return undefined;
+  const m = /^(\d+)/.exec(s);
+  return m ? parseInt(m[1], 10) : undefined;
+}
+
+function parseLeadership(s) {
+  if (!s) return undefined;
+  const m = /^(\d+)/.exec(s);
+  return m ? parseInt(m[1], 10) : undefined;
+}
+
+function parseOC(s) {
+  if (!s) return undefined;
+  const num = parseInt(s, 10);
+  return Number.isNaN(num) ? undefined : num;
+}
+
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
@@ -58,16 +76,25 @@ function writeFactionFile(fKey, units) {
   const outPath = path.join(OUT_DIR, `${fKey}.ts`);
   units.sort((a, b) => a.name.localeCompare(b.name));
   const lines = [];
+  lines.push(`export type StatProfile = {`);
+  lines.push(`  name: string;`);
+  lines.push(`  movement?: number;`);
+  lines.push(`  wounds: number;`);
+  lines.push(`  toughness: number;`);
+  lines.push(`  save: number;`);
+  lines.push(`  invulnSave?: number;`);
+  lines.push(`  leadership?: number;`);
+  lines.push(`  objectiveControl?: number;`);
+  lines.push(`};`);
+  lines.push('');
   lines.push(`export type Unit = {`);
   lines.push(`  id: string;`);
   lines.push(`  name: string;`);
   lines.push(`  baseCost: number;`);
   lines.push(`  costTiers: Record<number, number>;`);
   lines.push(`  modelsPerUnit: { min: number; max: number };`);
-  lines.push(`  wounds: number;`);
-  lines.push(`  toughness: number;`);
-  lines.push(`  save: number;`);
-  lines.push(`  invulnSave?: number;`);
+  lines.push(`  statProfiles: StatProfile[];`);
+  lines.push(`  keywords?: string[];`);
   lines.push(`};`);
   lines.push('');
   lines.push(`export const UNITS: Unit[] = [`);
@@ -78,10 +105,8 @@ function writeFactionFile(fKey, units) {
     lines.push(`    baseCost: ${u.baseCost},`);
     lines.push(`    costTiers: ${JSON.stringify(u.costTiers)},`);
     lines.push(`    modelsPerUnit: { min: ${u.modelsPerUnit.min}, max: ${u.modelsPerUnit.max} },`);
-    lines.push(`    wounds: ${u.wounds},`);
-    lines.push(`    toughness: ${u.toughness},`);
-    lines.push(`    save: ${u.save},`);
-    if (u.invulnSave != null) lines.push(`    invulnSave: ${u.invulnSave},`);
+    lines.push(`    statProfiles: ${JSON.stringify(u.statProfiles)},`);
+    if (u.keywords && u.keywords.length > 0) lines.push(`    keywords: ${JSON.stringify(u.keywords)},`);
     lines.push('  },');
   }
   lines.push('];');
@@ -107,6 +132,7 @@ function main() {
   const ds = readCsv('Datasheets.csv');
   const models = readCsv('Datasheets_models.csv');
   const costs = readCsv('Datasheets_models_cost.csv');
+  const keywords = readCsv('Datasheets_keywords.csv');
 
   const dsIdx = {
     id: ds.header.indexOf('id'),
@@ -118,10 +144,14 @@ function main() {
   const mIdx = {
     dsid: models.header.indexOf('datasheet_id'),
     line: models.header.indexOf('line'),
+    name: models.header.indexOf('name'),
+    M: models.header.indexOf('M'),
     T: models.header.indexOf('T'),
     W: models.header.indexOf('W'),
     Sv: models.header.indexOf('Sv'),
     inv: models.header.indexOf('inv_sv'),
+    Ld: models.header.indexOf('Ld'),
+    OC: models.header.indexOf('OC'),
   };
 
   const cIdx = {
@@ -130,8 +160,15 @@ function main() {
     cost: costs.header.indexOf('cost'),
   };
 
+  const kIdx = {
+    dsid: keywords.header.indexOf('datasheet_id'),
+    keyword: keywords.header.indexOf('keyword'),
+    isFaction: keywords.header.indexOf('is_faction_keyword'),
+  };
+
   const modelByDs = indexBy(models.rows, models.header, 'datasheet_id');
   const costByDs = indexBy(costs.rows, costs.header, 'datasheet_id');
+  const keywordByDs = indexBy(keywords.rows, keywords.header, 'datasheet_id');
 
   const unitsByFaction = new Map(Object.keys(FACTION_MAP).map(k => [FACTION_MAP[k].key, []]));
 
@@ -164,17 +201,51 @@ function main() {
     const min = Math.min(...sizes);
     const max = Math.max(...sizes);
 
-    // Stats from first line
+    // Stats from all model rows
     const mrows = modelByDs.get(id) || [];
-    let T = 4, W = 1, Sv = 3, inv;
-    if (mrows.length) {
-      // choose the first row with a numeric W
-      const pick = mrows.find(r => /\d/.test(r[mIdx.W])) || mrows[0];
-      T = parseInt((pick[mIdx.T] || '').replace(/\D/g, ''), 10) || T;
-      W = parseInt((pick[mIdx.W] || '').replace(/\D/g, ''), 10) || W;
-      Sv = parseSave(pick[mIdx.Sv]) || Sv;
-      const invParsed = parseSave(pick[mIdx.inv]);
-      if (invParsed != null) inv = invParsed;
+    const statProfiles = [];
+    for (const row of mrows) {
+      const M = parseMovement(row[mIdx.M]);
+      const T = parseInt((row[mIdx.T] || '').replace(/\D/g, ''), 10) || 4;
+      const W = parseInt((row[mIdx.W] || '').replace(/\D/g, ''), 10) || 1;
+      const Sv = parseSave(row[mIdx.Sv]) || 3;
+      const invParsed = parseSave(row[mIdx.inv]);
+      const Ld = parseLeadership(row[mIdx.Ld]);
+      const OC = parseOC(row[mIdx.OC]);
+      
+      const profile = {
+        name: row[mIdx.name] || 'Model',
+        wounds: W,
+        toughness: T,
+        save: Sv,
+      };
+      if (M != null) profile.movement = M;
+      if (invParsed != null) profile.invulnSave = invParsed;
+      if (Ld != null) profile.leadership = Ld;
+      if (OC != null) profile.objectiveControl = OC;
+      
+      statProfiles.push(profile);
+    }
+    
+    // If no profiles found, create a default one
+    if (statProfiles.length === 0) {
+      statProfiles.push({
+        name: 'Model',
+        wounds: 1,
+        toughness: 4,
+        save: 3,
+      });
+    }
+
+    // Extract keywords
+    const krows = keywordByDs.get(id) || [];
+    const keywordList = [];
+    for (const kr of krows) {
+      const keyword = kr[kIdx.keyword];
+      const isFaction = kr[kIdx.isFaction] === 'true';
+      if (keyword && !isFaction) { // Only include non-faction keywords
+        keywordList.push(keyword);
+      }
     }
 
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -184,11 +255,9 @@ function main() {
       baseCost: tiers[min],
       costTiers: tiers,
       modelsPerUnit: { min, max },
-      wounds: W,
-      toughness: T,
-      save: Sv,
+      statProfiles: statProfiles,
     };
-    if (inv != null) unit.invulnSave = inv;
+    if (keywordList.length > 0) unit.keywords = keywordList;
 
     unitsByFaction.get(f.key).push(unit);
   }
@@ -218,10 +287,14 @@ function main() {
               }
               if (o.modelsPerUnit) merged.modelsPerUnit = o.modelsPerUnit;
               if (o.baseCost != null) merged.baseCost = o.baseCost;
+              if (o.movement != null) merged.movement = o.movement;
               if (o.wounds != null) merged.wounds = o.wounds;
               if (o.toughness != null) merged.toughness = o.toughness;
               if (o.save != null) merged.save = o.save;
               if (o.invulnSave != null) merged.invulnSave = o.invulnSave;
+              if (o.leadership != null) merged.leadership = o.leadership;
+              if (o.objectiveControl != null) merged.objectiveControl = o.objectiveControl;
+              if (o.keywords) merged.keywords = o.keywords;
               list[idx] = merged;
             }
           }

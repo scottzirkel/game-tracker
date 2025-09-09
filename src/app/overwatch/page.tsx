@@ -8,7 +8,7 @@ import { FIXED_SECONDARIES_2025 } from "@/lib/secondaries";
 import { iconPathForFaction } from "@/lib/iconMap";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -347,8 +347,8 @@ export default function OverwatchPage() {
           <div
             className={`absolute bottom-0 left-0 right-0 h-2 ${theme.accentHazard} [background-image:repeating-linear-gradient(45deg,#f59e0b_0_12px,#111827_12px_24px)]`}
           />
-          <CardContent className="p-6 relative pb-8">
-            <div className="flex items-center justify-between mb-6">
+          <CardHeader className="border-b border-white/15 px-4 pb-3">
+            <div className="flex items-center justify-between">
               <h3 className="text-lg font-black tracking-[0.20em] text-white font-rajdhani uppercase">
                 Scoring
               </h3>
@@ -363,6 +363,8 @@ export default function OverwatchPage() {
                 </span>
               </div>
             </div>
+          </CardHeader>
+          <CardContent className="p-6 relative pb-8">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
               <ValueStepper
                 label="Primary"
