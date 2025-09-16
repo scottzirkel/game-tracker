@@ -84,6 +84,8 @@ export default function OverwatchPage() {
   const [timerRunning, setTimerRunning] = useState(false);
   const [hydratedFromStorage, setHydratedFromStorage] = useState(false);
   const [hadLocalSnapshot, setHadLocalSnapshot] = useState(false);
+  const [localBypassActive, setLocalBypassActive] = useState(false);
+  const [isLocalEnv, setIsLocalEnv] = useState(false);
   const {
     supabase,
     session,
@@ -96,7 +98,10 @@ export default function OverwatchPage() {
   const [password, setPassword] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const accessToken = session?.access_token ?? null;
-  const canEdit = useMemo(() => Boolean(accessToken), [accessToken]);
+  const canEdit = useMemo(
+    () => Boolean(accessToken) || localBypassActive,
+    [accessToken, localBypassActive],
+  );
 
   useEffect(() => {
     if (supabaseError) {
@@ -119,6 +124,16 @@ export default function OverwatchPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const hostname = window.location.hostname;
+    const localHosts = new Set(["localhost", "127.0.0.1", "::1"]);
+    const isLocal = localHosts.has(hostname);
+    setIsLocalEnv(isLocal);
+    if (isLocal) {
+      const stored = window.localStorage.getItem("overwatch-local-bypass");
+      if (stored === "1") {
+        setLocalBypassActive(true);
+      }
+    }
     try {
       const raw = window.localStorage.getItem(OVERWATCH_STORAGE_KEY);
       if (!raw) return;
@@ -267,23 +282,29 @@ export default function OverwatchPage() {
 
   const update = useCallback(
     async (patch: Partial<ScoreState>) => {
-      if (!accessToken) {
-        setAuthError("Active Supabase session required to update scores.");
-        return;
+    if (!accessToken && !localBypassActive) {
+      setAuthError("Active Supabase session required to update scores.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (accessToken) {
+        headers.Authorization = `Bearer ${accessToken}`;
       }
-      setSaving(true);
-      try {
-        const res = await fetch("/api/state", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify(patch),
-        });
-        if (res.status === 401 || res.status === 403) {
-          setAuthError("You are not authorized to modify the game state.");
-          return;
+      if (localBypassActive) {
+        headers["X-Local-Bypass"] = "1";
+      }
+      const res = await fetch("/api/state", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(patch),
+      });
+      if (res.status === 401 || res.status === 403) {
+        setAuthError("You are not authorized to modify the game state.");
+        return;
         }
         if (!res.ok) {
           throw new Error(`State update failed with status ${res.status}`);
@@ -300,7 +321,7 @@ export default function OverwatchPage() {
         setSaving(false);
       }
     },
-    [accessToken, clearError],
+    [accessToken, clearError, localBypassActive],
   );
 
   const nudge = (
@@ -372,7 +393,7 @@ export default function OverwatchPage() {
   };
 
   const handleResetGame = async () => {
-    if (!canEdit || !accessToken) {
+    if (!canEdit) {
       setAuthError("You must be signed in to reset the game state.");
       return;
     }
@@ -389,12 +410,18 @@ export default function OverwatchPage() {
         window.localStorage.removeItem(OVERWATCH_STORAGE_KEY);
       }
       const fresh = createDefaultScoreState();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (accessToken) {
+        headers.Authorization = `Bearer ${accessToken}`;
+      }
+      if (localBypassActive) {
+        headers["X-Local-Bypass"] = "1";
+      }
       const res = await fetch("/api/state", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
+        headers,
         body: JSON.stringify(fresh),
       });
       if (res.status === 401 || res.status === 403) {
@@ -702,12 +729,12 @@ export default function OverwatchPage() {
               Operator Access
             </h2>
             <p className="text-xs text-gray-300/80 mt-1">
-              Sign in with a Supabase account to manage the live game state. The public scoreboard remains view-only.
+              Sign in with an operator account to access the Overwatch console.
             </p>
           </div>
-          {session?.user && (
+          {(session?.user || localBypassActive) && (
             <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-medium text-emerald-200 uppercase tracking-tight">
-              authenticated
+              {localBypassActive ? "local bypass" : "authenticated"}
             </span>
           )}
         </div>
@@ -718,10 +745,53 @@ export default function OverwatchPage() {
             {authError}
           </div>
         )}
-        {!supabase && !session ? (
-          <p className="text-sm text-yellow-200/90">
-            Supabase client is not configured. Provide <code className="font-mono">NEXT_PUBLIC_SUPABASE_URL</code> and <code className="font-mono">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> to enable authentication.
-          </p>
+        {localBypassActive ? (
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-white">
+                Local bypass active
+              </p>
+              <p className="text-xs text-gray-400">
+                Scores update without Supabase while running on localhost.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  window.localStorage.removeItem("overwatch-local-bypass");
+                }
+                setLocalBypassActive(false);
+              }}
+              disabled={authSubmitting}
+            >
+              Disable
+            </Button>
+          </div>
+        ) : !supabase && !session ? (
+          <div className="space-y-3">
+            <p className="text-sm text-yellow-200/90">
+              Supabase client is not configured. Provide <code className="font-mono">NEXT_PUBLIC_SUPABASE_URL</code> and <code className="font-mono">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> to enable authentication.
+            </p>
+            {isLocalEnv && (
+              <button
+                type="button"
+                className="text-xs font-semibold tracking-[0.18em] uppercase text-emerald-300 hover:text-emerald-200"
+                onClick={() => {
+                  if (typeof window !== "undefined") {
+                    window.localStorage.setItem("overwatch-local-bypass", "1");
+                  }
+                  setLocalBypassActive(true);
+                  setAuthError(null);
+                  clearError();
+                }}
+              >
+                Bypass authentication (local only)
+              </button>
+            )}
+          </div>
         ) : canEdit ? (
           <div className="flex items-center justify-between gap-4">
             <div>
@@ -760,6 +830,7 @@ export default function OverwatchPage() {
                 required
                 autoComplete="email"
                 disabled={authSubmitting}
+                className="bg-white/5 text-white placeholder:text-gray-400 border-white/20"
               />
             </div>
             <div className="space-y-1">
@@ -778,6 +849,7 @@ export default function OverwatchPage() {
                 required
                 autoComplete="current-password"
                 disabled={authSubmitting}
+                className="bg-white/5 text-white placeholder:text-gray-400 border-white/20"
               />
             </div>
             <Button
@@ -790,11 +862,45 @@ export default function OverwatchPage() {
             <p className="text-xs text-gray-400">
               Only approved operator accounts can change scores. Contact the admin if you need access.
             </p>
+            {isLocalEnv && (
+              <button
+                type="button"
+                className="text-xs font-semibold tracking-[0.18em] uppercase text-emerald-300 hover:text-emerald-200"
+                onClick={() => {
+                  if (typeof window !== "undefined") {
+                    window.localStorage.setItem("overwatch-local-bypass", "1");
+                  }
+                  setLocalBypassActive(true);
+                  setAuthError(null);
+                  clearError();
+                }}
+              >
+                Bypass authentication (local only)
+              </button>
+            )}
           </form>
         )}
       </CardContent>
     </Card>
   );
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#0b0d10] text-white">
+        <p className="text-sm tracking-[0.18em] uppercase text-gray-300">
+          Checking credentials…
+        </p>
+      </div>
+    );
+  }
+
+  if (!canEdit) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#0b0d10] p-4">
+        <div className="w-full max-w-md">{authPanel}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen text-white bg-[#0b0d10]">
