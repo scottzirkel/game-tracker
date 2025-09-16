@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { FACTIONS, Faction, THEMES } from "@/lib/factions";
 import { DETACHMENTS } from "@/lib/detachments";
-import type { ScoreState } from "@/lib/scoreStore";
+import { createDefaultScoreState, type ScoreState } from "@/lib/scoreStore";
 import { FIXED_SECONDARIES_2025 } from "@/lib/secondaries";
 import { iconPathForFaction } from "@/lib/iconMap";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -16,9 +17,45 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Minus, Pause, Square, RotateCcw } from "lucide-react";
+import {
+  Plus,
+  Minus,
+  Square,
+  RotateCcw,
+  Play,
+  RefreshCcw,
+  ChevronRight,
+} from "lucide-react";
 import RosterManager from "@/components/RosterManager";
 import ValueStepper from "@/components/ValueStepper";
+import { useSupabaseAuth } from "@/lib/hooks/useSupabaseAuth";
+
+const OVERWATCH_STORAGE_KEY = "overwatch-score-state:v1";
+const PHASES = [
+  "Command",
+  "Movement",
+  "Shooting",
+  "Charge",
+  "Fight",
+] as const;
+type Phase = (typeof PHASES)[number];
+
+type StoredOverwatchState = {
+  version: 1;
+  savedAt: string;
+  state: ScoreState;
+};
+
+const isScoreState = (value: unknown): value is ScoreState => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    "left" in candidate &&
+    "right" in candidate &&
+    "battleRound" in candidate &&
+    "phase" in candidate
+  );
+};
 
 function FactionIcon({ src, className }: { src: string; className?: string }) {
   return (
@@ -45,19 +82,101 @@ export default function OverwatchPage() {
   const [saving, setSaving] = useState(false);
   const [gameTimer, setGameTimer] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
-  const PHASES = [
-    "Command",
-    "Movement",
-    "Shooting",
-    "Charge",
-    "Fight",
-  ] as const;
+  const [hydratedFromStorage, setHydratedFromStorage] = useState(false);
+  const [hadLocalSnapshot, setHadLocalSnapshot] = useState(false);
+  const {
+    supabase,
+    session,
+    loading: authLoading,
+    error: supabaseError,
+    clearError,
+  } = useSupabaseAuth();
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const accessToken = session?.access_token ?? null;
+  const canEdit = useMemo(() => Boolean(accessToken), [accessToken]);
 
   useEffect(() => {
-    fetch("/api/state")
-      .then((r) => r.json())
-      .then((s) => setState(s));
+    if (supabaseError) {
+      setAuthError(supabaseError);
+    }
+  }, [supabaseError]);
+
+  useEffect(() => {
+    if (session) {
+      setAuthError(null);
+      clearError();
+    }
+  }, [session, clearError]);
+
+  useEffect(() => {
+    if (session?.user?.email) {
+      setEmail(session.user.email);
+    }
+  }, [session?.user?.email]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(OVERWATCH_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as StoredOverwatchState | ScoreState;
+      const storedState =
+        parsed && typeof parsed === "object" && "state" in parsed
+          ? (parsed as StoredOverwatchState).state
+          : parsed;
+      if (isScoreState(storedState)) {
+        setState(storedState);
+        setHadLocalSnapshot(true);
+      }
+    } catch (error) {
+      console.warn("Failed to load Overwatch state from localStorage", error);
+    } finally {
+      setHydratedFromStorage(true);
+    }
   }, []);
+
+  useEffect(() => {
+    if (!hydratedFromStorage) return;
+    let cancelled = false;
+    const headers: HeadersInit | undefined = accessToken
+      ? { Authorization: `Bearer ${accessToken}` }
+      : undefined;
+    const options = headers ? { headers } : undefined;
+    fetch("/api/state", options)
+      .then((r) => r.json())
+      .then((s: ScoreState) => {
+        if (cancelled) return;
+        setState((prev) => (prev ? prev : s));
+      })
+      .catch((error) => {
+        console.warn("Failed to fetch Overwatch state", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hydratedFromStorage, accessToken]);
+
+  useEffect(() => {
+    if (!state || typeof window === "undefined") return;
+    if (!hydratedFromStorage && !hadLocalSnapshot) return;
+    try {
+      const payload: StoredOverwatchState = {
+        version: 1,
+        savedAt: new Date().toISOString(),
+        state,
+      };
+      window.localStorage.setItem(
+        OVERWATCH_STORAGE_KEY,
+        JSON.stringify(payload),
+      );
+      setHadLocalSnapshot(true);
+    } catch (error) {
+      console.warn("Failed to save Overwatch state to localStorage", error);
+    }
+  }, [state, hydratedFromStorage, hadLocalSnapshot]);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -106,20 +225,83 @@ export default function OverwatchPage() {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const update = async (patch: Partial<ScoreState>) => {
-    setSaving(true);
+  const handleSignIn = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!supabase) {
+      setAuthError(
+        "Supabase client unavailable. Check environment configuration.",
+      );
+      return;
+    }
+
+    setAuthError(null);
+    clearError();
+    setAuthSubmitting(true);
     try {
-      const res = await fetch("/api/state", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
       });
-      const s = await res.json();
-      setState(s);
+      if (error) {
+        setAuthError(error.message);
+        return;
+      }
+      setPassword("");
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Sign-in failed");
     } finally {
-      setSaving(false);
+      setAuthSubmitting(false);
     }
   };
+
+  const handleSignOut = async () => {
+    if (!supabase) return;
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      setAuthError(null);
+      clearError();
+      setPassword("");
+    }
+  };
+
+  const update = useCallback(
+    async (patch: Partial<ScoreState>) => {
+      if (!accessToken) {
+        setAuthError("Active Supabase session required to update scores.");
+        return;
+      }
+      setSaving(true);
+      try {
+        const res = await fetch("/api/state", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify(patch),
+        });
+        if (res.status === 401 || res.status === 403) {
+          setAuthError("You are not authorized to modify the game state.");
+          return;
+        }
+        if (!res.ok) {
+          throw new Error(`State update failed with status ${res.status}`);
+        }
+        const s = (await res.json()) as ScoreState;
+        setState(s);
+        setAuthError(null);
+        clearError();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("Failed to update game state", error);
+        setAuthError(message);
+      } finally {
+        setSaving(false);
+      }
+    },
+    [accessToken, clearError],
+  );
 
   const nudge = (
     side: "left" | "right",
@@ -162,6 +344,83 @@ export default function OverwatchPage() {
       }
     };
 
+  const handleToggleGame = () => {
+    if (!state) return;
+    if (!canEdit) {
+      setAuthError("You must be signed in to manage the game state.");
+      return;
+    }
+    const nextActive = !state.gameActive;
+    if (nextActive) {
+      setGameTimer(0);
+      setTimerRunning(true);
+      void update({
+        gameActive: true,
+        phase: "Command",
+        left: { commandPoints: state.left.commandPoints + 1 } as any,
+        right: { commandPoints: state.right.commandPoints + 1 } as any,
+      });
+    } else {
+      setTimerRunning(false);
+      void update({ gameActive: false });
+    }
+  };
+
+  const handleResetTimer = () => {
+    setGameTimer(0);
+    setTimerRunning(false);
+  };
+
+  const handleResetGame = async () => {
+    if (!canEdit || !accessToken) {
+      setAuthError("You must be signed in to reset the game state.");
+      return;
+    }
+    const confirmed =
+      typeof window === "undefined"
+        ? true
+        : window.confirm(
+            "Reset game data? This clears all scores and configuration.",
+          );
+    if (!confirmed) return;
+    setSaving(true);
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(OVERWATCH_STORAGE_KEY);
+      }
+      const fresh = createDefaultScoreState();
+      const res = await fetch("/api/state", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(fresh),
+      });
+      if (res.status === 401 || res.status === 403) {
+        setAuthError("You are not authorized to reset the game state.");
+        return;
+      }
+      if (!res.ok) {
+        throw new Error(`Reset failed with status ${res.status}`);
+      }
+      const s = (await res.json()) as ScoreState;
+      setState(s);
+      setGameTimer(0);
+      setTimerRunning(false);
+      setHadLocalSnapshot(false);
+      setAuthError(null);
+      clearError();
+    } catch (error) {
+      console.warn("Failed to reset game", error);
+      setAuthError(
+        error instanceof Error ? error.message : "Failed to reset game",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const Section = ({ side }: { side: "left" | "right" }) => {
     const d = state?.[side];
     const faction = d?.faction || FACTIONS[0];
@@ -169,6 +428,8 @@ export default function OverwatchPage() {
     const theme = THEMES[faction];
     const detachmentList = d?.faction ? DETACHMENTS[d.faction] || [] : [];
     const locked = state ? !state.gameActive : true;
+    const selectionDisabled = editingDisabled;
+    const scoringDisabled = editingDisabled || locked;
     const victory =
       d?.victoryPoints ?? (d ? (d.primary || 0) + (d.secondary || 0) : 0);
     return (
@@ -226,6 +487,7 @@ export default function OverwatchPage() {
                         [side]: { name, faction: defaultFaction[name] },
                       } as any);
                     }}
+                    disabled={selectionDisabled}
                   >
                     <SelectTrigger className="w-full bg-white/5 border-white/20 text-white">
                       <SelectValue placeholder="Select player…" />
@@ -253,6 +515,7 @@ export default function OverwatchPage() {
                       onValueChange={(v) =>
                         update({ [side]: { detachment: v } } as any)
                       }
+                      disabled={selectionDisabled || !d?.faction}
                     >
                       <SelectTrigger className="w-full bg-white/5 border-white/20 text-white">
                         <SelectValue placeholder="Select detachment…" />
@@ -285,6 +548,7 @@ export default function OverwatchPage() {
                     onValueChange={(v) =>
                       update({ [side]: { faction: v as Faction } } as any)
                     }
+                    disabled={selectionDisabled}
                   >
                     <SelectTrigger className="w-full bg-white/5 border-white/20 text-white">
                       <SelectValue placeholder="Select faction…" />
@@ -307,6 +571,7 @@ export default function OverwatchPage() {
                     onValueChange={(v) =>
                       update({ [side]: { currentSecondary: v } } as any)
                     }
+                    disabled={selectionDisabled}
                   >
                     <SelectTrigger className="w-full bg-white/5 border-white/20 text-white">
                       <SelectValue placeholder="Select secondary…" />
@@ -371,7 +636,7 @@ export default function OverwatchPage() {
                 value={d?.primary ?? 0}
                 onDec={() => nudge(side, "primary", -1)}
                 onInc={() => nudge(side, "primary", +1)}
-                disabled={locked}
+                disabled={scoringDisabled}
                 buttonClassName={`bg-transparent dark:bg-transparent text-white hover:bg-white/10 border ${theme.primaryBorder}`}
               />
               <ValueStepper
@@ -379,7 +644,7 @@ export default function OverwatchPage() {
                 value={d?.secondary ?? 0}
                 onDec={() => nudge(side, "secondary", -1)}
                 onInc={() => nudge(side, "secondary", +1)}
-                disabled={locked}
+                disabled={scoringDisabled}
                 buttonClassName={`bg-transparent dark:bg-transparent text-white hover:bg-white/10 border ${theme.primaryBorder}`}
               />
               <ValueStepper
@@ -387,7 +652,7 @@ export default function OverwatchPage() {
                 value={d?.commandPoints ?? 0}
                 onDec={() => nudge(side, "commandPoints", -1)}
                 onInc={() => nudge(side, "commandPoints", +1)}
-                disabled={locked}
+                disabled={scoringDisabled}
                 buttonClassName={`bg-transparent dark:bg-transparent text-white hover:bg-white/10 border ${theme.primaryBorder}`}
               />
             </div>
@@ -399,12 +664,144 @@ export default function OverwatchPage() {
     );
   };
 
-  const [leftCollapsed, setLeftCollapsed] = useState(false);
-  const [rightCollapsed, setRightCollapsed] = useState(false);
+  const handleAdvancePhase = () => {
+    if (!state || !state.gameActive) return;
+    if (!canEdit) {
+      setAuthError("You must be signed in to advance phases.");
+      return;
+    }
+    const currentPhase = state.phase as Phase | undefined;
+    const currentIndex = currentPhase
+      ? PHASES.indexOf(currentPhase)
+      : -1;
+    const normalizedIndex = currentIndex >= 0 ? currentIndex : 0;
+    const wrapping = normalizedIndex === PHASES.length - 1;
+    const nextIndex = wrapping ? 0 : normalizedIndex + 1;
+    const nextPhase = PHASES[nextIndex];
+
+    const patch: Partial<ScoreState> = { phase: nextPhase };
+    if (wrapping) {
+      patch.battleRound = (state.battleRound ?? 1) + 1;
+    }
+    if (nextPhase === "Command") {
+      patch.left = { commandPoints: state.left.commandPoints + 1 } as any;
+      patch.right = { commandPoints: state.right.commandPoints + 1 } as any;
+    }
+
+    void update(patch);
+  };
+
+  const editingDisabled = !canEdit;
+
+  const authPanel = (
+    <Card className="bg-white/5 border-white/10 backdrop-blur-sm">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-white font-rajdhani tracking-[0.18em] uppercase">
+              Operator Access
+            </h2>
+            <p className="text-xs text-gray-300/80 mt-1">
+              Sign in with a Supabase account to manage the live game state. The public scoreboard remains view-only.
+            </p>
+          </div>
+          {session?.user && (
+            <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-medium text-emerald-200 uppercase tracking-tight">
+              authenticated
+            </span>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {authError && (
+          <div className="rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+            {authError}
+          </div>
+        )}
+        {!supabase && !session ? (
+          <p className="text-sm text-yellow-200/90">
+            Supabase client is not configured. Provide <code className="font-mono">NEXT_PUBLIC_SUPABASE_URL</code> and <code className="font-mono">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> to enable authentication.
+          </p>
+        ) : canEdit ? (
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-white">
+                {session?.user?.email ?? "Signed in"}
+              </p>
+              <p className="text-xs text-gray-400">You may update the Overwatch console.</p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleSignOut}
+              disabled={authSubmitting}
+            >
+              Sign out
+            </Button>
+          </div>
+        ) : authLoading ? (
+          <p className="text-sm text-gray-300">Checking Supabase session…</p>
+        ) : (
+          <form onSubmit={handleSignIn} className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="overwatch-email" className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-300">
+                Email
+              </Label>
+              <Input
+                id="overwatch-email"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                onFocus={() => {
+                  setAuthError(null);
+                  clearError();
+                }}
+                required
+                autoComplete="email"
+                disabled={authSubmitting}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="overwatch-password" className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-300">
+                Password
+              </Label>
+              <Input
+                id="overwatch-password"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                onFocus={() => {
+                  setAuthError(null);
+                  clearError();
+                }}
+                required
+                autoComplete="current-password"
+                disabled={authSubmitting}
+              />
+            </div>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={authSubmitting || !email || !password}
+            >
+              {authSubmitting ? "Signing in…" : "Sign in"}
+            </Button>
+            <p className="text-xs text-gray-400">
+              Only approved operator accounts can change scores. Contact the admin if you need access.
+            </p>
+          </form>
+        )}
+      </CardContent>
+    </Card>
+  );
 
   return (
     <div className="min-h-screen text-white bg-[#0b0d10]">
       <div className="max-w-7xl mx-auto p-4">
+        <div className="mb-6 max-w-xl">
+          {authPanel}
+        </div>
         <header className="mb-6">
           <div className="grid grid-cols-3 items-center">
             <div className="justify-self-start">
@@ -413,60 +810,55 @@ export default function OverwatchPage() {
               </h1>
               <div className="mt-2 flex items-center gap-2">
                 <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setTimerRunning((r) => !r)}
-                  className="h-9 w-9 p-0"
-                  title={timerRunning ? "Pause" : "Start"}
-                >
-                  {timerRunning ? (
-                    <Pause className="h-4 w-4" />
-                  ) : (
-                    <PlayIcon className="h-4 w-4" />
-                  )}
-                </Button>
-                <Button
                   variant={state?.gameActive ? "secondary" : "default"}
                   size="sm"
-                  onClick={() => update({ gameActive: !state?.gameActive })}
-                  className="h-9 w-9 p-0"
+                  onClick={handleToggleGame}
+                  className="h-9 px-3 flex items-center gap-1"
                   title={state?.gameActive ? "Stop Game" : "Start Game"}
+                  disabled={editingDisabled || saving}
                 >
-                  <Square className="h-4 w-4" />
+                  {state?.gameActive ? (
+                    <Square className="h-4 w-4" />
+                  ) : (
+                    <Play className="h-4 w-4" />
+                  )}
+                  <span>{state?.gameActive ? "Stop Game" : "Start Game"}</span>
                 </Button>
                 <Button
-                  variant="outline"
+                  variant="destructive"
                   size="sm"
-                  onClick={() => {
-                    setGameTimer(0);
-                    setTimerRunning(false);
-                  }}
-                  className="h-9 w-9 p-0"
-                  title="Reset Timer"
+                  onClick={handleResetGame}
+                  className="h-9 px-3 flex items-center gap-1"
+                  title="Clear scores and configuration"
+                  disabled={editingDisabled || saving}
                 >
-                  <RotateCcw className="h-4 w-4" />
+                  <RefreshCcw className="h-4 w-4" />
+                  <span>Reset Game</span>
                 </Button>
-                <div className="ml-2 text-sm text-gray-400 font-orbitron">
+                <div className="ml-2 text-lg text-gray-400 font-orbitron">
                   {formatTime(gameTimer)}
                 </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleResetTimer}
+                  className="h-9 px-3 flex items-center gap-1"
+                  title="Reset timer for current game"
+                  disabled={editingDisabled}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  <span>Reset Timer</span>
+                </Button>
               </div>
             </div>
 
             {/* Center column: Round, centered */}
-            <div className="justify-self-center">
-              <div className="h-16 w-48 flex items-center justify-center">
-                <ValueStepper
-                  label="Round"
-                  value={state?.battleRound ?? 1}
-                  onDec={() =>
-                    update({
-                      battleRound: Math.max(1, (state?.battleRound ?? 1) - 1),
-                    })
-                  }
-                  onInc={() =>
-                    update({ battleRound: (state?.battleRound ?? 1) + 1 })
-                  }
-                />
+            <div className="justify-self-center flex flex-col items-center text-center gap-2">
+              <Label className="text-sm font-bold tracking-[0.12em] text-gray-200 font-rajdhani uppercase">
+                Round
+              </Label>
+              <div className="h-16 w-48 flex items-center justify-center rounded border border-white/20 bg-white/5 font-orbitron text-4xl tracking-[0.25em] text-white">
+                {(state?.battleRound ?? 1).toString().padStart(2, "0")}
               </div>
             </div>
 
@@ -475,31 +867,40 @@ export default function OverwatchPage() {
               <Label className="text-sm font-bold tracking-[0.12em] text-gray-200 font-rajdhani uppercase">
                 Phase
               </Label>
-              <Select
-                value={(state?.phase as string) || undefined}
-                onValueChange={(v) => update({ phase: v } as any)}
-              >
-                <SelectTrigger className="min-w-40 bg-white/5 border-white/20 text-white">
-                  <SelectValue placeholder="Select phase…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {PHASES.map((p) => (
-                    <SelectItem key={p} value={p}>
-                      {p}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-3">
+                <div className="min-w-40 rounded border border-white/20 bg-white/5 px-3 py-2 font-orbitron text-sm uppercase tracking-[0.18em] text-white">
+                  {(state?.phase as Phase) ?? "Command"}
+                </div>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleAdvancePhase}
+                  className="h-9 px-3 flex items-center gap-1"
+                  title="Advance to the next phase"
+                  disabled={!state?.gameActive || editingDisabled || saving}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                  <span>Next Phase</span>
+                </Button>
+              </div>
             </div>
           </div>
         </header>
+
+        {editingDisabled && (
+          <p className="mb-6 rounded border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
+            Viewing live data. Sign in above to unlock editing controls.
+          </p>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Section side="left" />
           <Section side="right" />
         </div>
 
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div
+          className={`mt-8 grid grid-cols-1 md:grid-cols-2 gap-6 ${editingDisabled ? "pointer-events-none opacity-60" : ""}`}
+        >
           <RosterManager
             side="left"
             faction={(state?.left.faction as any) || undefined}
@@ -511,24 +912,5 @@ export default function OverwatchPage() {
         </div>
       </div>
     </div>
-  );
-}
-
-function PlayIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polygon points="5 3 19 12 5 21 5 3" />
-    </svg>
   );
 }

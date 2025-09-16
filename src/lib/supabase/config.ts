@@ -1,0 +1,12 @@
+const DEFAULT_TABLE = "game_states";
+const DEFAULT_STATE_ID = "default";
+
+export const SUPABASE_GAME_STATE_TABLE =
+  process.env.NEXT_PUBLIC_SUPABASE_GAME_STATE_TABLE ??
+  process.env.SUPABASE_GAME_STATE_TABLE ??
+  DEFAULT_TABLE;
+
+export const SUPABASE_GAME_STATE_ID =
+  process.env.NEXT_PUBLIC_SUPABASE_GAME_STATE_ID ??
+  process.env.SUPABASE_GAME_STATE_ID ??
+  DEFAULT_STATE_ID;

@@ -1,3 +1,12 @@
+export type UnitType =
+  | "HQ"
+  | "Troops"
+  | "Elites"
+  | "Fast Attack"
+  | "Heavy Support"
+  | "Transport"
+  | "Lord of War";
+
 export type Unit = {
   id: string;
   name: string;
@@ -13,6 +22,7 @@ export type Unit = {
   toughness: number;
   save: number;
   invulnSave?: number;
+  type?: UnitType;
   wargear?: string[];
   abilities?: string[];
 };
@@ -90,6 +100,7 @@ export const CUSTODES_UNITS: Unit[] = [
   {
     id: "custodian-guard",
     name: "Custodian Guard",
+    type: "Troops",
     costTiers: { 4: 170, 5: 215 },
     baseCost: 170,
     modelsPerUnit: { min: 4, max: 5 },
@@ -104,6 +115,7 @@ export const CUSTODES_UNITS: Unit[] = [
   {
     id: "allarus-custodians",
     name: "Allarus Custodians",
+    type: "Elites",
     costTiers: { 2: 120, 3: 180, 4: 300, 5: 300, 6: 320 },
     baseCost: 120,
     modelsPerUnit: { min: 2, max: 6 },
@@ -117,6 +129,7 @@ export const CUSTODES_UNITS: Unit[] = [
   {
     id: "custodian-wardens",
     name: "Custodian Wardens",
+    type: "Elites",
     costTiers: { 4: 210, 5: 260 },
     baseCost: 210,
     modelsPerUnit: { min: 4, max: 5 },
@@ -129,6 +142,7 @@ export const CUSTODES_UNITS: Unit[] = [
   {
     id: "venerable-contemptor-dreadnought",
     name: "Venerable Contemptor Dreadnought",
+    type: "Elites",
     costTiers: { 1: 170 },
     baseCost: 170,
     modelsPerUnit: { min: 1, max: 1 },
@@ -142,6 +156,7 @@ export const CUSTODES_UNITS: Unit[] = [
   {
     id: "vertus-praetors",
     name: "Vertus Praetors",
+    type: "Fast Attack",
     costTiers: { 2: 150, 3: 225 },
     baseCost: 150,
     modelsPerUnit: { min: 2, max: 3 },
@@ -155,6 +170,7 @@ export const CUSTODES_UNITS: Unit[] = [
   {
     id: "venerable-land-raider",
     name: "Venerable Land Raider",
+    type: "Heavy Support",
     costTiers: { 1: 240 },
     baseCost: 240,
     modelsPerUnit: { min: 1, max: 1 },

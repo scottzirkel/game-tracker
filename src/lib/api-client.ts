@@ -26,7 +26,8 @@ import {
   API_ENDPOINTS,
   WebSocketConnection,
   WebSocketMessageUnion,
-  ErrorResponse
+  ErrorResponse,
+  TokenPair
 } from '../types/api';
 
 export class WarhammerApiClient {
@@ -168,8 +169,11 @@ export class WarhammerApiClient {
         .replace('https://', 'wss://')
         .replace('http://', 'ws://');
       
-      const url = `${wsUrl}/ws/battles/${battleId}?token=${this.accessToken}`;
-      const ws = new WebSocket(url);
+      const url = `${wsUrl}/ws/battles/${battleId}`;
+      // Include the bearer token via the Sec-WebSocket-Protocol header to avoid leaking it in URLs.
+      // The server must accept and validate the `bearer.<token>` protocol format.
+      const protocols = this.accessToken ? [`bearer.${this.accessToken}`] : undefined;
+      const ws = protocols ? new WebSocket(url, protocols) : new WebSocket(url);
 
       ws.onopen = () => {
         console.log(`Connected to battle ${battleId} WebSocket`);
@@ -214,29 +218,45 @@ export class WarhammerApiClient {
   private setTokens(accessToken: string, refreshToken: string): void {
     this.accessToken = accessToken;
     this.refreshToken = refreshToken;
-
-    // Store in localStorage for persistence (client-side only)
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('warhammer_access_token', accessToken);
-      localStorage.setItem('warhammer_refresh_token', refreshToken);
-    }
+    this.persistTokens({ accessToken, refreshToken });
   }
 
   private clearTokens(): void {
     this.accessToken = undefined;
     this.refreshToken = undefined;
+    this.clearPersistedTokens();
+  }
 
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('warhammer_access_token');
-      localStorage.removeItem('warhammer_refresh_token');
+  public async loadTokensFromStorage(): Promise<void> {
+    const store = this.config.tokenStore;
+    if (!store) return;
+    try {
+      const result = await Promise.resolve(store.load());
+      if (!result) return;
+      if (result.accessToken) this.accessToken = result.accessToken;
+      if (result.refreshToken) this.refreshToken = result.refreshToken;
+      this.notifyTokenChange({ accessToken: this.accessToken, refreshToken: this.refreshToken });
+    } catch (error) {
+      console.warn('Failed to load tokens from configured store', error);
     }
   }
 
-  public loadTokensFromStorage(): void {
-    if (typeof window !== 'undefined') {
-      this.accessToken = localStorage.getItem('warhammer_access_token') || undefined;
-      this.refreshToken = localStorage.getItem('warhammer_refresh_token') || undefined;
+  private persistTokens(tokens: TokenPair): void {
+    if (this.config.tokenStore) {
+      void this.config.tokenStore.save(tokens);
     }
+    this.notifyTokenChange(tokens);
+  }
+
+  private clearPersistedTokens(): void {
+    if (this.config.tokenStore) {
+      void this.config.tokenStore.clear();
+    }
+    this.notifyTokenChange({ accessToken: undefined, refreshToken: undefined });
+  }
+
+  private notifyTokenChange(tokens: Partial<TokenPair>): void {
+    this.config.onTokensChanged?.(tokens);
   }
 
   // HTTP Request Management

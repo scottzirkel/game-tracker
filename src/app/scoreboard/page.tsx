@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { ScoreState } from "@/lib/scoreStore";
 import { THEMES } from "@/lib/factions";
 import { iconPathForFaction } from "@/lib/iconMap";
 import type { Faction } from "@/lib/factions";
+import { useScoreState } from "@/lib/hooks/useScoreState";
+
+const ENABLE_SSE = process.env.NEXT_PUBLIC_SCOREBOARD_USE_SSE !== "false";
 
 function FactionIcon({ src, className }: { src: string; className?: string }) {
   return (
@@ -73,32 +74,7 @@ function FactionTitle({
 }
 
 export default function ScoreboardPage() {
-  const [state, setState] = useState<ScoreState | null>(null);
-
-  useEffect(() => {
-    let es: EventSource | null = null;
-    let mounted = true;
-    (async () => {
-      try {
-        const res = await fetch("/api/state");
-        const s = (await res.json()) as ScoreState;
-        if (mounted) setState(s);
-      } catch {}
-      try {
-        es = new EventSource("/api/stream");
-        es.onmessage = (ev) => {
-          try {
-            const data = JSON.parse(ev.data) as ScoreState;
-            if (mounted) setState(data);
-          } catch {}
-        };
-      } catch {}
-    })();
-    return () => {
-      mounted = false;
-      es?.close();
-    };
-  }, []);
+  const { state, mode } = useScoreState({ enableSSE: ENABLE_SSE });
 
   const leftFaction = state?.left.faction || "Ultramarines";
   const rightFaction = state?.right.faction || "Chaos Marines";
@@ -153,6 +129,29 @@ export default function ScoreboardPage() {
         </div>
       </div>
 
+      {/* Connection mode badge */}
+      <div className="absolute top-3 right-3 z-30 text-[11px] tracking-[0.2em]">
+        <span
+          className={`px-2 py-0.5 border font-rajdhani font-bold ${
+            mode === "sse" || mode === "supabase"
+              ? "bg-emerald-500/20 text-emerald-200 border-emerald-400/40"
+              : mode === "polling"
+                ? "bg-amber-500/15 text-amber-200 border-amber-400/30"
+                : mode === "error"
+                  ? "bg-rose-600/20 text-rose-200 border-rose-400/40"
+                  : "bg-sky-500/15 text-sky-200 border-sky-400/30"
+          }`}
+        >
+          {mode === "sse" || mode === "supabase"
+            ? "LIVE"
+            : mode === "polling"
+              ? "POLL"
+              : mode === "error"
+                ? "ERROR"
+                : "INIT"}
+        </span>
+      </div>
+
       {/* No game active banner */}
       {state && !state.gameActive && (
         <div className="absolute inset-0 grid place-items-center z-20">
@@ -181,10 +180,10 @@ export default function ScoreboardPage() {
                 )}
                 {/* Removed green radial highlight to reduce visual noise */}
                 <div className="relative flex items-center gap-3">
-                  {state && (
+                  {state?.left?.faction && (
                     <FactionIcon
-                      src={iconPathForFaction(state.left.faction)}
-                      className={`h-8 w-8 ${iconOpacityClass(state.left.faction)} text-current`}
+                      src={iconPathForFaction(state.left.faction as Faction)}
+                      className={`h-8 w-8 ${iconOpacityClass(state.left.faction as Faction)} text-current`}
                     />
                   )}
                   {/* prev Ultramarines title border: border border-amber-300/70 px-2 py-1 */}
@@ -257,10 +256,10 @@ export default function ScoreboardPage() {
                     name={state?.right.faction || ""}
                     align="right"
                   />
-                  {state && (
+                  {state?.right?.faction && (
                     <FactionIcon
-                      src={iconPathForFaction(state.right.faction)}
-                      className={`h-8 w-8 ${iconOpacityClass(state.right.faction)} text-current`}
+                      src={iconPathForFaction(state.right.faction as Faction)}
+                      className={`h-8 w-8 ${iconOpacityClass(state.right.faction as Faction)} text-current`}
                     />
                   )}
                 </div>

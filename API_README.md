@@ -6,7 +6,18 @@ A comprehensive REST API for managing Warhammer 40K battles, tournaments, and ar
 
 ### Authentication
 ```typescript
-import { apiClient } from './src/lib/api-client';
+import { WarhammerApiClient } from './src/lib/api-client';
+
+// Provide a secure token store (cookies, memory, etc.)
+const apiClient = new WarhammerApiClient({
+  tokenStore: {
+    load: () => null,
+    save: (tokens) => {
+      // Persist safely (e.g. exchange for HttpOnly cookies via server action)
+    },
+    clear: () => undefined,
+  },
+});
 
 // Register a new user
 const user = await apiClient.register({
@@ -21,6 +32,8 @@ const auth = await apiClient.login({
   username: 'captain_valoris',
   password: 'secure_password'
 });
+
+// Tokens are kept in memory unless the tokenStore persists them.
 ```
 
 ### Battle Management
@@ -71,6 +84,9 @@ const advancedBattle = await apiClient.advanceBattleRound(battle.id);
 ```typescript
 // Connect to battle WebSocket
 const ws = await apiClient.createWebSocketConnection(battle.id);
+
+// The client sends `bearer.<token>` via Sec-WebSocket-Protocol. Ensure the
+// server expects that sub-protocol and validates the supplied bearer token.
 
 // Listen for score updates
 window.addEventListener('ws:score_update', (event) => {

@@ -282,11 +282,24 @@ export type WebSocketMessageUnion =
   | PlayerDisconnectedMessage;
 
 // API Client Configuration
+export interface TokenPair {
+  accessToken: string;
+  refreshToken: string;
+}
+
+export interface TokenStore {
+  load: () => Promise<Partial<TokenPair> | null> | Partial<TokenPair> | null;
+  save: (tokens: TokenPair) => Promise<void> | void;
+  clear: () => Promise<void> | void;
+}
+
 export interface ApiClientConfig {
   baseUrl: string;
   timeout: number;
   retries: number;
   apiKey?: string;
+  tokenStore?: TokenStore;
+  onTokensChanged?: (tokens: Partial<TokenPair>) => void;
 }
 
 // Query Parameters

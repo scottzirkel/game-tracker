@@ -1,4 +1,4 @@
-import { FACTIONS, Faction } from '../lib/factions';
+import type { Faction } from '../lib/factions';
 
 export type PlayerState = {
   name?: 'Tim' | 'Scott' | 'Randy' | 'Anthony';
@@ -16,11 +16,50 @@ export type PlayerState = {
 
 export type ScoreState = {
   battleRound: number;
-  phase: 'Command' | 'Moving' | 'Shooting' | 'Rush' | 'Fight';
+  phase: 'Command' | 'Movement' | 'Shooting' | 'Charge' | 'Fight';
   gameActive: boolean;
   left: PlayerState;
   right: PlayerState;
 };
+
+const isDevEnv = process.env.NODE_ENV !== 'production';
+
+const createPlayerState = (defaults: Partial<PlayerState> = {}): PlayerState => {
+  const base = {
+    name: undefined,
+    faction: undefined,
+    detachment: '',
+    enhancement: '',
+    currentSecondary: '',
+    secondaryPlan: 'Tactical',
+    fixedSecondaries: [],
+    primary: 0,
+    secondary: 0,
+    commandPoints: 0,
+    ...defaults,
+  } satisfies Partial<PlayerState>;
+
+  return {
+    ...base,
+    victoryPoints: Math.max(0, (base.primary ?? 0) + (base.secondary ?? 0)),
+  } as PlayerState;
+};
+
+export const createDefaultScoreState = (): ScoreState => ({
+  battleRound: 1,
+  phase: 'Command',
+  gameActive: false,
+  left: createPlayerState(
+    isDevEnv
+      ? { name: 'Scott', faction: 'Adeptus Custodes' }
+      : {},
+  ),
+  right: createPlayerState(
+    isDevEnv
+      ? { name: 'Tim', faction: 'Ultramarines' }
+      : {},
+  ),
+});
 
 type Listener = (state: ScoreState) => void;
 
@@ -29,66 +68,7 @@ class Store {
   private listeners = new Set<Listener>();
 
   constructor() {
-    const isDev = process.env.NODE_ENV !== 'production';
-    this.state = {
-      battleRound: 1,
-      phase: 'Command',
-      gameActive: isDev ? true : false,
-      left: isDev
-        ? {
-            name: 'Scott',
-            faction: 'Adeptus Custodes',
-            detachment: '',
-            enhancement: '',
-            currentSecondary: '',
-            secondaryPlan: 'Tactical',
-            fixedSecondaries: [],
-            primary: 0,
-            victoryPoints: 0,
-            secondary: 0,
-            commandPoints: 0,
-          }
-        : {
-            name: undefined,
-            faction: undefined,
-            detachment: '',
-            enhancement: '',
-            currentSecondary: '',
-            secondaryPlan: 'Tactical',
-            fixedSecondaries: [],
-            primary: 0,
-            victoryPoints: 0,
-            secondary: 0,
-            commandPoints: 0,
-          },
-      right: isDev
-        ? {
-            name: 'Tim',
-            faction: 'Ultramarines',
-            detachment: '',
-            enhancement: '',
-            currentSecondary: '',
-            secondaryPlan: 'Tactical',
-            fixedSecondaries: [],
-            primary: 0,
-            victoryPoints: 0,
-            secondary: 0,
-            commandPoints: 0,
-          }
-        : {
-            name: undefined,
-            faction: undefined,
-            detachment: '',
-            enhancement: '',
-            currentSecondary: '',
-            secondaryPlan: 'Tactical',
-            fixedSecondaries: [],
-            primary: 0,
-            victoryPoints: 0,
-            secondary: 0,
-            commandPoints: 0,
-          },
-    };
+    this.state = createDefaultScoreState();
   }
 
   getState() {
@@ -109,6 +89,12 @@ class Store {
       right: mergedRight,
     };
     this.state = next;
+    this.emit();
+    return this.state;
+  }
+
+  reset() {
+    this.state = createDefaultScoreState();
     this.emit();
     return this.state;
   }

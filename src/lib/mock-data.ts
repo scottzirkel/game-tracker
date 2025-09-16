@@ -7,6 +7,7 @@ import {
   User,
   Army,
   Battle,
+  type BattlePlayer,
   Tournament,
   Faction,
   BattleStatus,
@@ -415,8 +416,8 @@ export const MockDataHelpers = {
     const updatedBattle = { ...battle };
     updatedBattle.current_round = Math.min(battle.current_round + roundsToAdvance, battle.max_rounds);
     
-    // Randomly increase scores
-    updatedBattle.players = battle.players.map(player => ({
+    // Randomly increase scores; preserve 2-player tuple type
+    const updatedPlayers = battle.players.map(player => ({
       ...player,
       scores: {
         victory_points: player.scores.victory_points + Math.floor(Math.random() * 3),
@@ -426,7 +427,8 @@ export const MockDataHelpers = {
         challenge: player.scores.challenge + (Math.random() > 0.9 ? 1 : 0)
       },
       command_points: Math.max(0, player.command_points - Math.floor(Math.random() * 2))
-    }));
+    })) as [BattlePlayer, BattlePlayer];
+    updatedBattle.players = updatedPlayers;
 
     return updatedBattle;
   }
