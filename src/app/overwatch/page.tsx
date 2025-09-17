@@ -18,8 +18,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Plus,
-  Minus,
   Square,
   RotateCcw,
   Play,
@@ -712,199 +710,183 @@ export default function OverwatchPage() {
 
   const editingDisabled = !canEdit;
 
-  const headerDescription = localBypassActive
-    ? "Local bypass active. Scores update without Supabase while running on localhost."
-    : session
-      ? "Authenticated operator. You may update the Overwatch console."
-      : "Sign in with an operator account to access the Overwatch console.";
-
   const shouldShowSetupWarning = !supabase && !session && !localBypassActive;
-  const shouldShowSessionInfo = session && !localBypassActive;
   const shouldShowForm =
     !session && !localBypassActive && !authLoading && Boolean(supabase);
-  const shouldShowContent = Boolean(
-    authError ||
-      shouldShowSetupWarning ||
-      shouldShowSessionInfo ||
-      authLoading ||
-      shouldShowForm,
-  );
-
-  const authPanel = (
-    <Card
-      className={`bg-white/5 border-white/10 backdrop-blur-sm py-0! ${
-        session || localBypassActive ? "w-full" : ""
-      }`}
+  const headerAction = localBypassActive ? (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => {
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem("overwatch-local-bypass");
+        }
+        setLocalBypassActive(false);
+        setAuthError(null);
+        clearError();
+      }}
+      className="border-white/30 text-emerald-100 hover:bg-white/10 hover:text-white"
     >
-      <CardHeader className="">
+      Disable local bypass
+    </Button>
+  ) : session ? (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={handleSignOut}
+      disabled={authSubmitting}
+      className="border-white/30 text-emerald-100 hover:bg-white/10 hover:text-white"
+    >
+      Sign out
+    </Button>
+  ) : null;
+
+  const loginPanel = (
+    <Card className="bg-white/5 border-white/10 backdrop-blur-sm py-0!">
+      <CardHeader>
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-white font-rajdhani tracking-[0.18em] uppercase">
             Operator Access
           </h2>
-          {/* <p className="text-[11px] text-gray-300/70 mt-1"> */}
-          {/* {headerDescription} */}
-          {/* </p> */}
-          {localBypassActive ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                if (typeof window !== "undefined") {
-                  window.localStorage.removeItem("overwatch-local-bypass");
-                }
-                setLocalBypassActive(false);
-                setAuthError(null);
-                clearError();
-              }}
-              className="border-white/30 text-emerald-100 hover:bg-white/10 hover:text-white"
-            >
-              Disable local bypass
-            </Button>
-          ) : session ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleSignOut}
-              disabled={authSubmitting}
-              className="border-white/30 text-emerald-100 hover:bg-white/10 hover:text-white"
-            >
-              Sign out
-            </Button>
-          ) : null}
+          {headerAction}
         </div>
       </CardHeader>
-      {shouldShowContent && (
-        <CardContent className="space-y-3 px-4 pb-4 text-sm">
-          {authError && (
-            <div className="rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-              {authError}
-            </div>
-          )}
-          {shouldShowSetupWarning ? (
-            <div className="space-y-3">
-              <p className="text-sm text-yellow-200/90">
-                Supabase client is not configured. Provide{" "}
-                <code className="font-mono">NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
-                <code className="font-mono">NEXT_PUBLIC_SUPABASE_ANON_KEY</code>{" "}
-                to enable authentication.
-              </p>
-              {isLocalEnv && (
-                <button
-                  type="button"
-                  className="text-xs font-semibold tracking-[0.18em] uppercase text-emerald-300 hover:text-emerald-200"
-                  onClick={() => {
-                    if (typeof window !== "undefined") {
-                      window.localStorage.setItem(
-                        "overwatch-local-bypass",
-                        "1",
-                      );
-                    }
-                    setLocalBypassActive(true);
-                    setAuthError(null);
-                    clearError();
-                  }}
-                >
-                  Bypass authentication (local only)
-                </button>
-              )}
-            </div>
-          ) : shouldShowSessionInfo ? (
-            <div className="space-y-1 text-sm">
-              <div>
-                <p className="font-medium text-white">
-                  {session?.user?.email ?? "Signed in"}
-                </p>
-                <p className="text-xs text-gray-400">
-                  You may update the Overwatch console.
-                </p>
-              </div>
-            </div>
-          ) : authLoading ? (
-            <p className="text-sm text-gray-300">Checking Supabase session…</p>
-          ) : shouldShowForm ? (
-            <form onSubmit={handleSignIn} className="space-y-3">
-              <div className="space-y-1 text-sm">
-                <Label
-                  htmlFor="overwatch-email"
-                  className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-300"
-                >
-                  Email
-                </Label>
-                <Input
-                  id="overwatch-email"
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  onFocus={() => {
-                    setAuthError(null);
-                    clearError();
-                  }}
-                  required
-                  autoComplete="email"
-                  disabled={authSubmitting}
-                  className="bg-white/5 text-white placeholder:text-gray-400 border-white/20"
-                />
-              </div>
-              <div className="space-y-1 text-sm">
-                <Label
-                  htmlFor="overwatch-password"
-                  className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-300"
-                >
-                  Password
-                </Label>
-                <Input
-                  id="overwatch-password"
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  onFocus={() => {
-                    setAuthError(null);
-                    clearError();
-                  }}
-                  required
-                  autoComplete="current-password"
-                  disabled={authSubmitting}
-                  className="bg-white/5 text-white placeholder:text-gray-400 border-white/20"
-                />
-              </div>
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={authSubmitting || !email || !password}
+      <CardContent className="space-y-3 px-4 pb-4 text-sm">
+        {authError && (
+          <div className="rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+            {authError}
+          </div>
+        )}
+        {shouldShowSetupWarning ? (
+          <div className="space-y-3">
+            <p className="text-sm text-yellow-200/90">
+              Supabase client is not configured. Provide{" "}
+              <code className="font-mono">NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
+              <code className="font-mono">NEXT_PUBLIC_SUPABASE_ANON_KEY</code>{" "}
+              to enable authentication.
+            </p>
+            {isLocalEnv && (
+              <button
+                type="button"
+                className="text-xs font-semibold tracking-[0.18em] uppercase text-emerald-300 hover:text-emerald-200"
+                onClick={() => {
+                  if (typeof window !== "undefined") {
+                    window.localStorage.setItem("overwatch-local-bypass", "1");
+                  }
+                  setLocalBypassActive(true);
+                  setAuthError(null);
+                  clearError();
+                }}
               >
-                {authSubmitting ? "Signing in…" : "Sign in"}
-              </Button>
-              <p className="text-xs text-gray-400">
-                Only approved operator accounts can change scores. Contact the
-                admin if you need access.
-              </p>
-              {isLocalEnv && (
-                <button
-                  type="button"
-                  className="text-xs font-semibold tracking-[0.18em] uppercase text-emerald-300 hover:text-emerald-200"
-                  onClick={() => {
-                    if (typeof window !== "undefined") {
-                      window.localStorage.setItem(
-                        "overwatch-local-bypass",
-                        "1",
-                      );
-                    }
-                    setLocalBypassActive(true);
-                    setAuthError(null);
-                    clearError();
-                  }}
-                >
-                  Bypass authentication (local only)
-                </button>
-              )}
-            </form>
-          ) : null}
-        </CardContent>
-      )}
+                Bypass authentication (local only)
+              </button>
+            )}
+          </div>
+        ) : authLoading ? (
+          <p className="text-sm text-gray-300">Checking Supabase session…</p>
+        ) : shouldShowForm ? (
+          <form onSubmit={handleSignIn} className="space-y-3">
+            <div className="space-y-1 text-sm">
+              <Label
+                htmlFor="overwatch-email"
+                className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-300"
+              >
+                Email
+              </Label>
+              <Input
+                id="overwatch-email"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                onFocus={() => {
+                  setAuthError(null);
+                  clearError();
+                }}
+                required
+                autoComplete="email"
+                disabled={authSubmitting}
+                className="bg-white/5 text-white placeholder:text-gray-400 border-white/20"
+              />
+            </div>
+            <div className="space-y-1 text-sm">
+              <Label
+                htmlFor="overwatch-password"
+                className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-300"
+              >
+                Password
+              </Label>
+              <Input
+                id="overwatch-password"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                onFocus={() => {
+                  setAuthError(null);
+                  clearError();
+                }}
+                required
+                autoComplete="current-password"
+                disabled={authSubmitting}
+                className="bg-white/5 text-white placeholder:text-gray-400 border-white/20"
+              />
+            </div>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={authSubmitting || !email || !password}
+            >
+              {authSubmitting ? "Signing in…" : "Sign in"}
+            </Button>
+            <p className="text-xs text-gray-400">
+              Only approved operator accounts can change scores. Contact the
+              admin if you need access.
+            </p>
+            {isLocalEnv && (
+              <button
+                type="button"
+                className="text-xs font-semibold tracking-[0.18em] uppercase text-emerald-300 hover:text-emerald-200"
+                onClick={() => {
+                  if (typeof window !== "undefined") {
+                    window.localStorage.setItem("overwatch-local-bypass", "1");
+                  }
+                  setLocalBypassActive(true);
+                  setAuthError(null);
+                  clearError();
+                }}
+              >
+                Bypass authentication (local only)
+              </button>
+            )}
+          </form>
+        ) : null}
+      </CardContent>
     </Card>
   );
+
+  const sessionPanel = (
+    <div className="w-full border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200">
+            Operator Access
+          </p>
+          <p className="mt-2 text-sm font-medium text-white">
+            {session?.user?.email ?? "Signed in"}
+          </p>
+        </div>
+        {headerAction && <div className="shrink-0">{headerAction}</div>}
+      </div>
+      {authError && (
+        <div className="mt-3 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+          {authError}
+        </div>
+      )}
+    </div>
+  );
+
+  const authPanel = session || localBypassActive ? sessionPanel : loginPanel;
 
   if (authLoading) {
     return (
